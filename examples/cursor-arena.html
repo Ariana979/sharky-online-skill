@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Cursor Arena — sharky-online example</title>
+<style>
+  /* Free-form: any CSS/DOM/canvas/WebGL you want. */
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:ui-rounded,system-ui,sans-serif;
+    background:radial-gradient(1000px 600px at 30% 20%, #312e81, #0f172a 60%, #020617)}
+  #arena{position:absolute;inset:0;cursor:crosshair}
+  .cursor{position:absolute;transform:translate(-50%,-50%);transition:left .1s linear,top .1s linear;
+    text-align:center;pointer-events:none}
+  .cursor .glyph{font-size:40px;filter:drop-shadow(0 0 10px currentColor)}
+  .cursor .tag{font-size:11px;color:#e2e8f0;background:rgba(2,6,23,.7);border-radius:8px;padding:1px 7px}
+  .ripple{position:absolute;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;
+    border:3px solid #f472b6;pointer-events:none;animation:rip .7s ease-out forwards}
+  @keyframes rip{to{width:170px;height:170px;opacity:0}}
+  #hud{position:absolute;top:10px;left:10px;color:#94a3b8;font:12px ui-monospace;line-height:1.6;
+    background:rgba(2,6,23,.6);border:1px solid #1e293b;border-radius:10px;padding:8px 12px}
+  #start-btn{position:absolute;left:50%;top:62%;transform:translate(-50%,-50%);padding:14px 44px;font-size:20px;
+    border-radius:14px;border:0;background:#22d3ee;color:#083344;font-weight:700;cursor:pointer;display:none}
+</style>
+</head>
+<body>
+<!-- scripts/build.ts injects the sharky runtime right after <body> -->
+<div id="arena"></div>
+<button id="start-btn">START</button>
+<div id="hud">connecting…</div>
+
+<script>
+(async function () {
+  // No-op inside the platform sim sandbox (SharkyNet exits early there).
+  if (typeof SharkyNet === 'undefined') return;
+  const net = await SharkyNet.ready();
+  const arena = document.getElementById('arena');
+  const hud = document.getElementById('hud');
+  const startBtn = document.getElementById('start-btn');
+  const GLYPHS = ['🦈','🐙','🐠','🦀','🐳','🐡','🪼','🦭'];
+  const cursors = {};
+
+  const glyphFor = t => { let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return GLYPHS[h % GLYPHS.length]; };
+
+  function drawCursor(tag, x, y) {
+    let c = cursors[tag];
+    if (!c) {
+      c = document.createElement('div');
+      c.className = 'cursor';
+      c.innerHTML = `<div class="glyph">${glyphFor(tag)}</div><div class="tag">${tag.slice(0, 4)}${tag === net.tag ? ' (you)' : ''}</div>`;
+      arena.appendChild(c);
+      cursors[tag] = c;
+    }
+    c.style.left = (x * 100) + '%';
+    c.style.top = (y * 100) + '%';
+  }
+
+  function ripple(x, y) {
+    const r = document.createElement('div');
+    r.className = 'ripple';
+    r.style.left = (x * 100) + '%';
+    r.style.top = (y * 100) + '%';
+    arena.appendChild(r);
+    setTimeout(() => r.remove(), 800);
+  }
+
+  // Local echo (zero-latency) + bus broadcast (authoritative ordering).
+  arena.addEventListener('mousemove', e => {
+    const x = e.clientX / innerWidth, y = e.clientY / innerHeight;
+    drawCursor(net.tag, x, y);
+    net.send({ k: 'pos', x, y });          // net throttles to a safe rate itself
+  });
+  arena.addEventListener('click', e => {
+    const x = e.clientX / innerWidth, y = e.clientY / innerHeight;
+    ripple(x, y);
+    net.send({ k: 'ping', x, y });
+  });
+
+  // Ordered ops from everyone (self echoes included, flagged via meta.self).
+  net.on('op', (op, meta) => {
+    if (meta.self) return;                 // own inputs already echoed locally
+    if (op.k === 'pos') drawCursor(op.__tag, op.x, op.y);
+    if (op.k === 'ping') ripple(op.x, op.y);
+  });
+
+  // isHost()/me() are live polls — on the real page roles resolve async
+  // (seconds, gotcha 15c), so render the button from CURRENT state each
+  // tick instead of freezing a one-shot answer taken at load.
+  startBtn.addEventListener('click', () => net.start());
+
+  net.on('phase', renderHud);
+  setInterval(renderHud, 1500);
+  function renderHud() {
+    startBtn.style.display = (net.isHost() && net.phase() === 'lobby') ? 'block' : 'none';
+    const s = net.stats();
+    hud.innerHTML = `<b>Cursor Arena</b> · ${net.me().id.slice(0, 8)} ${net.isHost() ? '(host)' : ''} · phase ${net.phase()}<br>` +
+      `sent ${s.sent} · applied ${s.applied} · rtt ${s.lastRttMs}ms · updates ${s.stateUpdates}`;
+  }
+  renderHud();
+})();
+</script>
+</body>
+</html>

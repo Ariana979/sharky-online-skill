@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Round Arena 3D — sharky-online example</title>
+<!--
+  Worked reference for the live-presence seam patterns in
+  references/hard-parts.md §0–§2.5 — the canonical knowledge lives THERE;
+  this file only shows it assembled in one 3D page. Deliberately
+  category-neutral: geometry players on an open platform, one restartable
+  round, no genre goal. Everything marked "taste" (entities, camera,
+  movement feel, the round-end RULE, visuals) is yours to replace — the
+  round LIFECYCLE shape (rule ends it, result screen, host restarts via a
+  world event) is the transferable part, the rule itself is not.
+-->
+<style>
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0b1020;
+    font-family:ui-rounded,system-ui,sans-serif;color:#e2e8f0}
+  #scene{position:absolute;inset:0}
+  #labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+  .label{position:absolute;transform:translate(-50%,-100%);font-size:12px;white-space:nowrap;
+    background:rgba(2,6,23,.65);border-radius:8px;padding:1px 8px}
+  #hud{position:absolute;top:10px;left:10px;font:12px ui-monospace;line-height:1.6;
+    background:rgba(2,6,23,.6);border:1px solid #1e293b;border-radius:10px;padding:8px 12px}
+  #banner{position:absolute;left:50%;top:26%;transform:translateX(-50%);font-size:44px;
+    font-weight:800;text-shadow:0 2px 18px #000;opacity:0;transition:opacity .3s;pointer-events:none}
+  #lobby{position:absolute;inset:0;display:grid;place-items:center;background:rgba(2,6,23,.55)}
+  #lobby .card{background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:28px 40px;
+    text-align:center;min-width:280px}
+  #roster{margin:12px 0;font:13px ui-monospace;line-height:1.8}
+  #start-btn{padding:12px 40px;font-size:18px;border-radius:12px;border:0;background:#22d3ee;
+    color:#083344;font-weight:700;cursor:pointer}
+  #start-btn:disabled{background:#334155;color:#94a3b8;cursor:default}
+  #hint{margin-top:10px;font-size:12px;color:#94a3b8}
+  #result-card{position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);text-align:center;
+    background:#0f172a;border:1px solid #1e293b;border-radius:16px;padding:20px 36px}
+  #result-card p{margin:0 0 12px;color:#e2e8f0;font-size:16px}
+  #round-btn{padding:10px 30px;font-size:16px;border-radius:12px;border:0;background:#f472b6;
+    color:#500724;font-weight:700;cursor:pointer}
+  #round-btn:disabled{background:#334155;color:#94a3b8;cursor:default}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+<!-- scripts/build.ts injects the sharky runtime right after <body> -->
+<div id="scene"></div>
+<div id="labels"></div>
+<div id="hud">connecting…</div>
+<div id="banner"></div>
+<!-- result-style card, matching where platform games put their restart -->
+<div id="result-card" hidden><p id="result-text"></p><button id="round-btn">NEW ROUND</button></div>
+<div id="lobby"><div class="card">
+  <h1>Round Arena</h1>
+  <div id="roster">connecting…</div>
+  <button id="start-btn" disabled>connecting…</button>
+  <div id="hint"></div>
+</div></div>
+
+<script>/*__VENDOR:three-0.161.0.global.min__*/</script>
+
+<script>
+(async function () {
+  // No-op inside the platform sim sandbox (SharkyNet exits early there —
+  // an unhandled rejection here would kill the room session, gotcha 1c).
+  if (typeof SharkyNet === 'undefined') return;
+  const net = await SharkyNet.ready();
+
+  const $ = id => document.getElementById(id);
+  const hud = $('hud'), banner = $('banner'), lobby = $('lobby'),
+        roster = $('roster'), startBtn = $('start-btn'), hint = $('hint'),
+        roundBtn = $('round-btn'), resultCard = $('result-card'),
+        resultText = $('result-text'), labelBox = $('labels');
+
+  /* ——— seam: identity (hard-parts §0.7) ———
+     Names come from net.players()[uid].name (platform nicknames; they
+     arrive/update via the 'players' event). op.__tag / net.tag is a
+     transport tag, NOT identity — never display it. */
+  // golden-angle spread: adjacent uids ('local-p1'/'p2') land ~137° apart —
+  // a plain `h % 360` gives near-identical colors exactly in local testing
+  const hueOf = uid => { let h = 0; for (const c of String(uid)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return (h * 137.508) % 360; };
+  const nameOf = uid => (net.players()[uid] || {}).name || String(uid).slice(0, 6);
+
+  /* ——— taste: scene, platform, avatars — swap ALL of this freely ——— */
+  const ARENA_R = 14;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b1020);
+  scene.fog = new THREE.Fog(0x0b1020, 40, 90);
+  const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 200);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  $('scene').appendChild(renderer.domElement);
+  addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+  scene.add(new THREE.HemisphereLight(0xbfd7ff, 0x1c1030, 1.1));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+  sun.position.set(10, 18, 6); scene.add(sun);
+  const platform = new THREE.Mesh(new THREE.CylinderGeometry(ARENA_R, ARENA_R * 0.92, 1.2, 48),
+    new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 }));
+  platform.position.y = -0.6; scene.add(platform);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(ARENA_R, 0.12, 10, 72),
+    new THREE.MeshBasicMaterial({ color: 0x22d3ee }));
+  rim.rotation.x = Math.PI / 2; scene.add(rim);
+
+  function makeAvatar(uid) {
+    const mat = new THREE.MeshStandardMaterial({ transparent: true });
+    mat.color.setHSL(hueOf(uid) / 360, 0.7, 0.55);
+    const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 0.8, 4, 12), mat);
+    scene.add(mesh);
+    const label = document.createElement('div');
+    label.className = 'label'; labelBox.appendChild(label);
+    return { mesh, mat, label };
+  }
+  const setY = (av, y) => av.mesh.position.y = y + 1.0;
+
+  /* ——— seam: own player + local echo (game contract #4) ———
+     Own movement applies locally the instant input happens; the bus only
+     mirrors it to others. Own object also gets an unmissable identity
+     anchor — uid color + a "(you)" label: two same-looking avatars
+     overlapping otherwise read as "wearing the opponent's skin". */
+  const a0 = hueOf(net.me().id) / 360 * Math.PI * 2;   // hash-spread spawn spot
+  const spawn = () => ({ x: Math.cos(a0) * 3, z: Math.sin(a0) * 3 });
+  const me = Object.assign({ vx: 0, vz: 0, y: 0, out: false }, spawn());
+  const own = makeAvatar(net.me().id);
+
+  /* ——— taste: input + movement feel ——— */
+  const keys = {};
+  addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+  addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+  // One keyboard, two panes: the pane you leave never receives its keyup
+  // (gotcha 13c) — clear held keys on blur; real players alt-tab too.
+  addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+  function stepMe(dt) {
+    if (net.phase() !== 'playing' || me.out) { me.vx *= 0.9; me.vz *= 0.9; }
+    else {
+      const A = 18;
+      if (keys.w || keys.arrowup) me.vz -= A * dt;
+      if (keys.s || keys.arrowdown) me.vz += A * dt;
+      if (keys.a || keys.arrowleft) me.vx -= A * dt;
+      if (keys.d || keys.arrowright) me.vx += A * dt;
+      const f = Math.exp(-3.5 * dt); me.vx *= f; me.vz *= f;
+    }
+    me.x += me.vx * dt; me.z += me.vz * dt;
+
+    /* ——— seam: ghost soft-contact (hard-parts §1) — clamp YOURSELF out of
+       alive-ghost overlap, wall-style; symmetric on every peer, zero
+       authority conflict. ——— */
+    for (const uid in ghosts) {
+      const g = ghosts[uid];
+      if (!g.target || g.target.out || !g.mesh.visible) continue; // no invisible walls
+      const dx = me.x - g.mesh.position.x, dz = me.z - g.mesh.position.z;
+      const d = Math.hypot(dx, dz), R = 1.1;
+      if (d > 1e-4 && d < R) {
+        me.x = g.mesh.position.x + (dx / d) * R; me.z = g.mesh.position.z + (dz / d) * R;
+        const vn = (me.vx * dx + me.vz * dz) / d;
+        if (vn < 0) { me.vx -= (dx / d) * vn; me.vz -= (dz / d) * vn; }
+      }
+    }
+
+    // Fell off the platform → "out" for the rest of the round (taste rule;
+    // the seam-relevant part is what stays on the wire — see streamPose).
+    if (!me.out && net.phase() === 'playing' && Math.hypot(me.x, me.z) > ARENA_R) {
+      me.out = true; showBanner('OUT — wait for the next round');
+    }
+    if (me.out && me.y > -7) me.y -= 9 * dt;
+    own.mesh.position.x = me.x; own.mesh.position.z = me.z; setY(own, me.y);
+    own.mat.color.setHSL(hueOf(net.me().id) / 360, 0.7, 0.55); // live: id can resolve late (15c)
+    own.mat.opacity = me.out ? 0.35 : 1;
+  }
+
+  /* ——— seam: pose stream (§0.1/§0.3 + death visibility) ———
+     Send the LATEST pose on a ~11/s cadence (coalesce — never every frame:
+     the ≤15/s budget is shared with the sendReliable drain, and a saturated
+     stream starves queued must-arrive ops). Streams stay lossy — never
+     sendReliable a stream. Keep streaming while out/waiting too: a client
+     that goes silent is pruned as departed on everyone else's screen, so
+     "death" would read as "player vanished". State rides inside the pose.
+     Hosted on a TIMER, not the render loop: browsers freeze rAF to 0Hz in
+     hidden/occluded pages but only throttle timers to ~1/s — a covered
+     window keeps a heartbeat going instead of vanishing on every other
+     screen (single-person two-window testing hits this constantly). */
+  setInterval(() => {
+    net.send({ k: 'pose', x: me.x, z: me.z, y: me.y, out: me.out });
+  }, 90);
+
+  /* ——— seam: ordered ops in, one handler (§0) ——— */
+  const ghosts = {}; // uid -> { mesh, mat, label, target, lastSeen }
+  let round = 0, roundOver = false, resultLine = '';
+  net.on('op', (op, meta) => {
+    if (op.k === 'pose') {                                    // stream op
+      if (meta.self || meta.uid === net.me().id) return;      // §0.1 own stream is already echoed locally
+      if (meta.replayed) return;                              // §0.2 history, not "now"
+      if (meta.staleMs > 3000) return;                        // §0.2 catch-up backlog after a frozen page
+      const g = ghosts[meta.uid] || (ghosts[meta.uid] = makeAvatar(meta.uid));
+      g.target = op; g.lastSeen = performance.now();
+    }
+    // World events are the opposite of streams on BOTH counts: the sender
+    // applies its own event from the bus too (skipping self here would
+    // leave the clicker in a private round — the O6-class bug), and
+    // replayed 'round' ops are CONSUMED, not skipped — that is exactly how
+    // a latecomer catches up. The n > round guard keeps it idempotent.
+    if (op.k === 'round' && op.n > round) applyRound(op.n);
+  });
+
+  /* ——— seam: rounds are ROOM verbs (hard-parts §2.5) ———
+     Anything that LOOKS shared — start, new round, countdown — must act on
+     the room, never just locally. A "play again" that only resets the
+     clicker leaves every client in a private round: poses stop lining up,
+     opponents teleport or go invisible. So the round travels the bus as a
+     reliable world event and every client — sender included — applies it
+     from the ordered stream (no local reset on click; the ~400ms echo is
+     the price of everyone agreeing). The round LIFECYCLE mirrors the
+     platform's own expression: the round ends by the game's rule, a result
+     screen shows, and restarting is the HOST's call — same privilege shape
+     as net.start(). */
+  function applyRound(n) {
+    round = n; roundOver = false; resultLine = '';
+    Object.assign(me, spawn(), { vx: 0, vz: 0, y: 0, out: false });
+    showBanner('ROUND ' + n);
+  }
+  roundBtn.addEventListener('click', () => {
+    if (net.isHost() && roundOver) net.sendReliable({ k: 'round', n: round + 1 }); // §0.3 must-arrive
+  });
+
+  /* ——— taste: the round-END rule (last one standing) is the game's own —
+     swap this predicate for your genre (first-to-finish, score target,
+     timer…); detecting it is local presentation, and that is fine for
+     casual rules. A CONTESTED outcome (photo finish, first-claim) is
+     different: it belongs in __SHARKY_RULES__ server arbitration —
+     references/hard-parts.md §2. The room-synchronized part here is the
+     restart above. ——— */
+  function aliveStats() {
+    let total = 1, alive = me.out ? 0 : 1;
+    let aliveName = me.out ? null : nameOf(net.me().id) + ' (you)';
+    for (const uid in ghosts) {
+      const t = ghosts[uid].target; if (!t) continue;
+      total++;
+      if (!t.out) { alive++; aliveName = nameOf(uid); }
+    }
+    return { total, alive, aliveName };
+  }
+  function checkRoundOver() {
+    if (net.phase() !== 'playing' || roundOver) return;
+    const s = aliveStats();
+    if ((s.total >= 2 && s.alive <= 1) || (s.total === 1 && s.alive === 0)) {
+      roundOver = true;
+      resultLine = s.alive === 1 ? s.aliveName + ' wins the round!' : "everyone's OUT";
+      showBanner(resultLine);
+    }
+  }
+
+  /* ——— seam: starting the room (gotcha 15c) ———
+     The lobby re-renders EVERY frame from live net state. On the real page
+     identity/role resolve asynchronously (seconds): a one-shot isHost()
+     check at load freezes the pre-resolution answer (false for everyone)
+     and the start button silently swallows clicks. Rendering from the live
+     poll shows the flip the frame it happens; the phase event — carried by
+     every state_update — is what actually moves EVERY client out of the
+     lobby, so nobody depends on their own click landing. */
+  startBtn.addEventListener('click', () => { if (net.isHost()) net.start(); });
+  net.on('phase', p => { if (p === 'playing' && round === 0) applyRound(1); });
+
+  /* ——— seam: degrade contract (hard-parts §0) — surface link quality so a
+     network stall never reads as "the game broke". ——— */
+  net.on('connection', (e) => {
+    if (e.kind !== 'quality') return;
+    showBanner(e.tier === 'critical' ? '⚠ connection lost — reconnecting…'
+      : e.tier === 'degraded' ? '⚠ weak network' : '✓ connection recovered');
+  });
+
+  function renderLobby() {
+    const inLobby = net.phase() === 'lobby';
+    lobby.style.display = inLobby ? 'grid' : 'none';
+    // Result card: appears when the round is OVER (by the game's rule) — or
+    // as a passive "you're out" note while the round still runs. Restart is
+    // the host's decision on the result screen (platform expression), with
+    // the button rendered from the live isHost() poll like START is.
+    resultCard.hidden = inLobby || !(roundOver || me.out);
+    if (!resultCard.hidden) {
+      resultText.textContent = roundOver ? resultLine : "you're OUT — round in progress";
+      roundBtn.hidden = !roundOver;
+      const host = net.isHost();
+      roundBtn.disabled = !host;
+      roundBtn.textContent = host ? 'NEW ROUND' : 'waiting for host…';
+    }
+    if (!inLobby) return;
+    const ids = Object.keys(net.players());
+    roster.innerHTML = ids.map(id =>
+      `<div>${nameOf(id)}${id === net.me().id ? ' — you' : ''}</div>`).join('') || '…';
+    // §0.5 lobby legibility: show the count; when solo, say how friends
+    // join (a fresh room otherwise reads as broken multiplayer, gotcha 15b).
+    hint.textContent = ids.length < 2
+      ? "solo so far — friends join via the room's Invite link"
+      : ids.length + ' players connected';
+    const host = net.isHost();
+    startBtn.disabled = !host;
+    startBtn.textContent = host ? 'START' : 'waiting for host…';
+  }
+
+  /* ——— taste: ghost motion feel (the §0.4 lifecycle around it is seam) ——— */
+  const GHOST_IDLE_MS = 10000;    // silent but connected: mark idle (💤)
+  const GHOST_DISPOSE_MS = 60000; // long-silence backstop (mock rosters are sticky)
+  function stepGhosts(dt) {
+    const now = performance.now();
+    for (const uid in ghosts) {
+      const g = ghosts[uid], t = g.target;
+      if (t) {
+        // §0.4 snap-when-far: an unfrozen page drains buffered updates in a
+        // burst — without a snap threshold the ghost visibly replays the
+        // missed trajectory. Near targets keep the smooth steer (taste).
+        const dx = t.x - g.mesh.position.x, dz = t.z - g.mesh.position.z;
+        if (dx * dx + dz * dz > 25) {
+          g.mesh.position.x = t.x; g.mesh.position.z = t.z;
+        } else {
+          const k = 1 - Math.exp(-10 * dt);      // steer toward latest pose
+          g.mesh.position.x += dx * k;
+          g.mesh.position.z += dz * k;
+        }
+        setY(g, t.y || 0);
+        // The transport rule is "never go SILENT while out" (silence reads
+        // as departed, §0.4) — but what to RENDER for an out player is
+        // taste: here the body hides and the moment is announced once;
+        // the HUD count keeps the state legible.
+        if (t.out && !g.wasOut) showBanner(nameOf(uid) + ' is OUT');
+        g.wasOut = !!t.out;
+      }
+      // §0.4 existence = the server's connection truth: net.players() drops
+      // real leavers (relay grace ~5s) while an idle or backgrounded player
+      // stays listed — so they STAND at the last pose instead of vanishing
+      // (background pages get timers throttled to as little as 1/min;
+      // existence must not depend on stream cadence). Silence only marks
+      // them idle; "out" still hides (round rule). Dispose shortly after a
+      // real departure, with a long-silence backstop for mock rooms (their
+      // roster is sticky).
+      const silentMs = now - g.lastSeen;
+      const here = !!net.players()[uid];
+      g.mesh.visible = !(t && t.out) && here;
+      g.idle = here && silentMs > GHOST_IDLE_MS;
+      if ((!here && silentMs > 5000) || silentMs > GHOST_DISPOSE_MS) {
+        scene.remove(g.mesh); g.label.remove(); delete ghosts[uid];
+      }
+    }
+  }
+
+  /* ——— taste: camera + labels + hud ——— */
+  function stepCamera(dt) {
+    const k = 1 - Math.exp(-5 * dt);
+    camera.position.lerp(new THREE.Vector3(me.x, 10, me.z + 12), k);
+    camera.lookAt(me.x, 0.8, me.z);
+  }
+  const v3 = new THREE.Vector3();
+  function placeLabel(av, x, y, z, text) {
+    v3.set(x, y + 2.1, z).project(camera);
+    const on = v3.z < 1;
+    av.label.style.display = on ? 'block' : 'none';
+    if (!on) return;
+    av.label.style.left = ((v3.x + 1) / 2 * innerWidth) + 'px';
+    av.label.style.top = ((1 - v3.y) / 2 * innerHeight) + 'px';
+    av.label.textContent = text;
+  }
+  function renderLabels() {
+    placeLabel(own, me.x, me.y, me.z, nameOf(net.me().id) + ' (you)' + (me.out ? ' — out' : ''));
+    for (const uid in ghosts) {
+      const g = ghosts[uid], p = g.mesh.position;
+      if (!g.mesh.visible) { g.label.style.display = 'none'; continue; }
+      placeLabel(g, p.x, p.y - 1, p.z, nameOf(uid) + (g.idle ? ' 💤' : ''));
+    }
+  }
+  let bannerT = null;
+  function showBanner(text) {
+    banner.textContent = text; banner.style.opacity = 1;
+    clearTimeout(bannerT); bannerT = setTimeout(() => banner.style.opacity = 0, 1600);
+  }
+  function renderHud() {
+    const s = aliveStats();
+    const q = net.quality();
+    hud.textContent = 'round ' + round + ' · ' + s.total + ' here · '
+      + s.alive + ' in · rtt ' + net.stats().lastRttMs + 'ms'
+      + (q.tier !== 'good' ? ' · ⚠ ' + q.tier : '');
+  }
+
+  // Machine-readable focus hook — lets playtest-gate assert the camera never
+  // loses your object (G3); without it the gate just skips that check.
+  window.__PLAYTEST__ = {
+    focusScreenPos() {
+      const v = new THREE.Vector3(me.x, 1, me.z).project(camera);
+      return { x: (v.x + 1) / 2, y: (1 - v.y) / 2 };
+    },
+  };
+
+  let last = performance.now();
+  (function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    stepMe(dt); stepGhosts(dt); stepCamera(dt);
+    checkRoundOver();
+    renderLobby(); renderLabels(); renderHud();
+    renderer.render(scene, camera);
+  })(last);
+})();
+</script>
+</body>
+</html>

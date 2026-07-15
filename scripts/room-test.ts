@@ -1,0 +1,94 @@
+// room-test.ts — automated 2-client verification of a PUBLISHED game's room.
+//
+//   bun scripts/room-test.ts --game-id <id> [--chrome <path>]
+//
+// Signs two guest bootstraps, joins the real server_sim room with two headless
+// clients loading the real game_url, then asserts the sync bus works:
+// relay open → START → playing → cross-client ordered op delivery + RTT.
+// Requires playwright-core resolvable (run from a directory that has it, or
+// `bun add playwright-core` once inside the skill folder).
+import { chromium } from 'playwright-core'
+
+const args: Record<string, string> = {}
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) args[argv[i].slice(2)] = argv[i + 1] ?? ''
+const gameId = args['game-id']
+if (!gameId) { console.error('usage: bun room-test.ts --game-id <published game id>'); process.exit(1) }
+const CHROME = args.chrome || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+
+// 1. sign two guest bootstraps on one fresh instance
+const inst = crypto.randomUUID()
+async function guestBootstrap(name: string) {
+  const r = await fetch(`https://api.sharky.gg/api/v1/games/${gameId}/bootstrap-guest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ guest_id: crypto.randomUUID(), display_name: name, client: {}, instance_id: inst }),
+  })
+  const j: any = await r.json()
+  if (j.error_code) throw new Error('bootstrap failed: ' + JSON.stringify(j))
+  return j.data
+}
+const bsA = await guestBootstrap('RoomTest-A')
+const bsB = await guestBootstrap('RoomTest-B')
+if (bsA.sync_mode !== 'server_sim') throw new Error(`sync_mode is ${bsA.sync_mode}, expected server_sim — check user_games.authority_mode`)
+console.log('[ok] bootstraps signed · sync_mode=server_sim · game_url =', String(bsA.game_url).slice(-50))
+
+// 2. two clients: iframe the real game_url, inject bootstrap via postMessage
+const PARENT = (bs: unknown) => `<!DOCTYPE html><html><body style="margin:0">
+<iframe id="g" src="${bsA.game_url}" style="width:100vw;height:100vh;border:0"></iframe>
+<script>
+var bs = ${JSON.stringify(bs)};
+document.getElementById('g').addEventListener('load', function () {
+  setTimeout(function () {
+    document.getElementById('g').contentWindow.postMessage(
+      { ns: 'delta-bridge', action: 'game:network-bootstrap', payload: bs, timestamp: Date.now() }, '*');
+  }, 400);
+});
+</script></body></html>`
+
+const browser = await chromium.launch({ headless: true, executablePath: CHROME })
+async function openClient(bs: unknown) {
+  const page = await browser.newPage({ viewport: { width: 900, height: 640 } })
+  // 3D games can be ~1MB; first /play fetch may be a cold cache
+  await page.setContent(PARENT(bs), { waitUntil: 'domcontentloaded', timeout: 90_000 })
+  return page
+}
+const A = await openClient(bsA)
+const B = await openClient(bsB)
+const frame = (p: any) => p.frames().find((f: any) => f !== p.mainFrame())
+async function inGame<T>(p: any, fn: () => T): Promise<T | undefined> {
+  const f = frame(p)
+  return f ? f.evaluate(fn).catch(() => undefined) : undefined
+}
+
+// 3. wait for both nets open
+for (let i = 0; i < 40; i++) {
+  const a = await inGame(A, () => !!(window as any).SharkyNet && (window as any).SharkyNet.stats().stateUpdates >= 0 && (window as any).__DELTA_BRIDGE__?.relaySocket?.readyState === 1)
+  const b = await inGame(B, () => (window as any).__DELTA_BRIDGE__?.relaySocket?.readyState === 1)
+  if (a && b) break
+  await new Promise((r) => setTimeout(r, 500))
+  if (i === 39) throw new Error('relay never opened on both clients')
+}
+console.log('[ok] both clients connected to the room')
+
+// 4. host starts; exchange ops
+await inGame(A, () => (window as any).SharkyNet.start())
+await new Promise((r) => setTimeout(r, 2000))
+for (let i = 0; i < 10; i++) {
+  await inGame(A, () => (window as any).SharkyNet.send({ k: 'roomtest', from: 'A' }))
+  await inGame(B, () => (window as any).SharkyNet.send({ k: 'roomtest', from: 'B' }))
+  await new Promise((r) => setTimeout(r, 150))
+}
+await new Promise((r) => setTimeout(r, 3000))
+
+const sA = await inGame<any>(A, () => (window as any).SharkyNet.stats())
+const sB = await inGame<any>(B, () => (window as any).SharkyNet.stats())
+console.log('[A]', JSON.stringify(sA))
+console.log('[B]', JSON.stringify(sB))
+await browser.close()
+
+if (!sA || !sB) throw new Error('SharkyNet stats unavailable — is the game built with scripts/build.ts?')
+if (sA.stateUpdates === 0) throw new Error('sim never broadcast — check the published HTML contains the shim config')
+if (sA.applied < sA.sent + 5) throw new Error('A did not receive both op streams')
+if (sB.applied < sB.sent + 5) throw new Error('B did not receive both op streams')
+console.log(`\n✅ ROOM OK — ordered bus verified · A rtt≈${sA.lastRttMs}ms B rtt≈${sB.lastRttMs}ms`)
