@@ -79,6 +79,11 @@ net.stats()         // { sent, applied, lastRttMs, relayRttMs, connected,
                      //   epoch, stateUpdates, ... }
 ```
 
+Worked adoption snippets for the three newest surfaces (quality chip,
+claim pending-then-reveal, replay/staleness guard) sit in
+`references/hard-parts.md` §0.9 — they demonstrate; the semantics above
+stay canonical.
+
 ## Workflow
 
 Commands below run from your game's directory; `<skill>` stands for this
@@ -103,11 +108,18 @@ bun <skill>/scripts/build.ts --game my-game.html --title "My Game" \
     --min-players 2 --max-players 8 --out dist/index.html
 ```
 
-**2.5 Deterministic checks (~35s)** — what the machines can assert on the fresh build:
+**2.5 Deterministic checks** — what the machines can assert on the fresh build:
 ```bash
 bun <skill>/scripts/playtest-gate.ts --html dist/index.html                # smoke, ~10s
-bun <skill>/scripts/playtest-gate.ts --html dist/index.html --two-client   # bus seam, ~25s
+bun <skill>/scripts/playtest-gate.ts --html dist/index.html --two-client   # bus seam
 ```
+`--two-client` writes `dist/playtest/seam-verdict.json` in phases:
+`"running"` at start, `"seam"` once the hard asserts are decided (~11s,
+scene-weight-insensitive), `"final"` when the trailing artifact frames and
+any late page errors are in (~15s total on light scenes, ~50s on a
+double-pane 3D build; a crashed artifact phase still stamps a terminal
+`"final"` with `aborted:true`). A backgrounded run is consumable from that
+file as soon as `"seam"` lands.
 Smoke asserts zero page errors on the built bytes at one desktop viewport
 (repaint is reported as a warning — static-by-design screens exist); in a
 terminal-CLI session there is no preview tool, so smoke is the only render
@@ -153,6 +165,9 @@ not the game.
 **3.5 Filmstrip (multi-viewport motion frames)**:
 ```bash
 bun <skill>/scripts/playtest-gate.ts --html dist/index.html --filmstrip    # 3 viewports × drive, ~90s
+# CSS fix at one width? --viewport mobile re-runs just it (≈1/3 of the full
+# pass); the full 3-viewport run stays the default — scoped runs can't see
+# cross-viewport regressions, and report.json records scoped runs as such.
 ```
 Renders a 10s turning + camera-drag drive into 8 frames per viewport
 (desktop / wide-retina / mobile 390×844@3x) plus

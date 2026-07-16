@@ -123,6 +123,69 @@ tiers change with ~1s-in/~2s-out hysteresis so UI can bind directly):
 - `critical` (disconnected, or the world >3s stale): reconnect notice,
   gate hard-commit inputs, keep simulating locally.
 
+## 0.9 Adoption skeletons (worked reference — temporary by design)
+
+Worked reference for the three newest API surfaces. The snippets
+demonstrate; canonical semantics stay in the SKILL.md API block and
+sharky-net.js. Temporary by design — intended for removal once sessions
+wire these correctly without them.
+
+**Quality chip + disconnect toast** — display the tier or the EMA
+(`q.rttMs`), not raw single samples: a healthy long-haul link brushes the
+p95 (~780ms) routinely, so a raw `lastRttMs` readout cries wolf on every
+jitter spike.
+
+```js
+setInterval(() => {
+  const q = net.quality();   // {tier, rttMs (EMA), updateAgeMs, connected}
+  hudChip.textContent = q.tier === 'good' ? '🟢'
+    : q.tier === 'degraded' ? '🟡 网络不稳' : '🔴 连接中断';
+}, 1000);
+net.on('connection', (e) => {
+  if (e.kind === 'closed' || e.kind === 'error') showToast('连接断开，自动重连中…');
+});
+```
+
+**Contested pickup via claim** — the ordered log is the referee: the FIRST
+claim op for an id (in bus order) wins, and everyone's op-apply marks it
+taken. Ordering fact at confirm time: a LOSING claim sees the winner
+already written into state (their earlier entry applied first); a WINNING
+claim's own entry applies right after the confirm fires — so the reveal
+test is "unset or mine", not "mine". The ~400ms round trip hides inside
+the grab animation.
+
+```js
+// in the shared op-apply path (bus order, same for everyone, replay included):
+//   if (op.k === 'grab' && !state.taken[op.id]) state.taken[op.id] = uid;
+startGrabAnimation(coin);                        // local, instant
+const queued = net.claim({ k: 'grab', id: coin.id }, (op) => {
+  if (!op) return rollbackGrab(coin);            // 30s timeout — link died
+  const winner = state.taken[coin.id];           // set only if someone beat you
+  resolveGrab(coin, !winner || winner === net.me().id);
+});
+if (!queued) rollbackGrab(coin);                 // could not even queue
+```
+
+(Rules-script variant — spirited-coins, the RF3 sandworm: reconcile from
+`net.game()` instead of local state, with a timeout rollback that revives
+the item when it is neither taken nor pending.)
+
+**Replay/staleness guard** — split state from effects. Streams (pose) skip
+replayed wholesale; events & KV must APPLY during replay (that is how a
+joiner rebuilds the world) — only one-shot effects are gated:
+
+```js
+net.on('op', (op, meta) => {
+  if (op.k === 'pose') {                         // stream: ephemeral — full gate
+    if (meta.self || meta.replayed || meta.staleMs > 3000) return;
+    return updateGhost(op, meta);                // (self = your own echo; stale =
+  }                                              //  catch-up backlog, land LIVE)
+  applyToState(op);                              // events: every op, replay included
+  if (meta.self || meta.replayed || meta.staleMs > 3000) return;
+  playEffects(op);                               // sounds/flash/toasts: live only
+});
+```
+
 ## 1. Ghost soft-contact (zero platform involvement)
 
 Remote players are dead-reckoned ghosts. You still get contact FEEL by

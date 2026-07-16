@@ -1,8 +1,14 @@
 // playtest-gate.ts — deterministic render checks for built games ("the eyes").
 //
 //   bun scripts/playtest-gate.ts --html dist/index.html                # smoke (default), ~10s
-//   bun scripts/playtest-gate.ts --html dist/index.html --two-client   # bus seam, ~25s
-//   bun scripts/playtest-gate.ts --html dist/index.html --filmstrip    # 3 viewports × drive window, ~90s
+//   bun scripts/playtest-gate.ts --html dist/index.html --two-client   # bus seam. seam-verdict.json is
+//                                     # written phase:"running" at start, phase:"seam" once the hard
+//                                     # asserts are decided (~11s, scene-weight-insensitive), and
+//                                     # phase:"final" when the artifact frames finish (~15s light /
+//                                     # ~50s double-pane 3D; a crash still stamps a terminal "final",
+//                                     # aborted:true) — a backgrounded run is consumable from that
+//                                     # file as soon as phase:"seam" lands
+//   bun scripts/playtest-gate.ts --html dist/index.html --filmstrip [--viewport mobile]  # 3 viewports × drive, ~90-150s (scoped ≈ 1/3)
 //
 // Modes (facts):
 //   smoke       one desktop viewport, load → start → ~4s observe. Asserts G1
@@ -52,9 +58,18 @@ const htmlPath = resolve(args.html || 'dist/index.html')
 const SECONDS = Number(args.seconds) || 10
 const outDir = resolve(args.out || 'dist/playtest')
 const MODE = args['two-client'] ? 'two-client' : args.filmstrip ? 'filmstrip' : 'smoke'
+if (args.viewport && MODE !== 'filmstrip') {
+  console.error(`--viewport only applies to --filmstrip; ${MODE} runs at a fixed viewport`)
+  process.exit(1)
+}
 
 const gameHtml = readFileSync(htmlPath, 'utf8')
 mkdirSync(outDir, { recursive: true })
+// Reset the verdict file FIRST (before the browser even launches) so a
+// poller can never read a previous run's result during this run's boot.
+if (MODE === 'two-client') {
+  writeFileSync(resolve(outDir, 'seam-verdict.json'), JSON.stringify({ phase: 'running', at: new Date().toISOString() }, null, 2))
+}
 
 // ---------------------------------------------------------------- mock rooms
 // Single-player mock room: local identity + loopback bus with sim-like ordering.
@@ -105,6 +120,18 @@ const VIEWPORTS = [
   { name: 'wide-retina', width: 2000, height: 1176, dpr: 2 },
   { name: 'mobile', width: 390, height: 844, dpr: 3 },
 ]
+// --viewport <name> scopes a filmstrip run to one viewport (a CSS fix at a
+// single width rarely needs the full 3-viewport pass) — the full run stays
+// the default: single-viewport reruns cannot see cross-viewport regressions.
+const SELECTED_VIEWPORTS = (() => {
+  if (!args.viewport) return VIEWPORTS
+  const hit = VIEWPORTS.filter((v) => v.name === args.viewport)
+  if (!hit.length) {
+    console.error(`unknown --viewport '${args.viewport}' (use: ${VIEWPORTS.map((v) => v.name).join(' | ')})`)
+    process.exit(1)
+  }
+  return hit
+})()
 
 // Input script with TURNS and sustained circling ("donuts") — gentle inputs
 // hide rotation bugs; sustained full-lock from low speed is the worst case.
@@ -150,9 +177,12 @@ const browser = await launchBrowser()
 // ================================================================== filmstrip
 if (MODE === 'filmstrip') {
   const page_html = injectShim(MOCK)
-  const report: any = { mode: MODE, html: htmlPath, seconds: SECONDS, viewports: [], pass: true }
+  const report: any = { mode: MODE, html: htmlPath, seconds: SECONDS, scoped: args.viewport ?? null, viewports: [], pass: true }
 
-  for (const vp of VIEWPORTS) {
+  if (SELECTED_VIEWPORTS.length < VIEWPORTS.length) {
+    console.log(`[filmstrip] scoped to '${args.viewport}' — cross-viewport regressions are unseen in a scoped run (the full 3-viewport pass stays the default)`)
+  }
+  for (const vp of SELECTED_VIEWPORTS) {
     const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: vp.dpr })
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(String(e).slice(0, 200)))
@@ -216,7 +246,7 @@ if (MODE === 'filmstrip') {
   // contact sheet
   const sheet = `<!DOCTYPE html><html><body style="background:#111;color:#eee;font-family:monospace">
 <h2>playtest filmstrip — ${new Date().toISOString()}</h2>
-${VIEWPORTS.map((vp) => `<h3>${vp.name}</h3><div style="display:flex;gap:4px;overflow-x:auto">${Array.from({ length: 8 }, (_, i) => `<img src="${vp.name}-${i}.png" style="width:220px">`).join('')}</div>`).join('')}
+${SELECTED_VIEWPORTS.map((vp) => `<h3>${vp.name}</h3><div style="display:flex;gap:4px;overflow-x:auto">${Array.from({ length: 8 }, (_, i) => `<img src="${vp.name}-${i}.png" style="width:220px">`).join('')}</div>`).join('')}
 </body></html>`
   writeFileSync(resolve(outDir, 'filmstrip.html'), sheet)
   writeFileSync(resolve(outDir, 'report.json'), JSON.stringify(report, null, 2))
@@ -231,6 +261,7 @@ ${VIEWPORTS.map((vp) => `<h3>${vp.name}</h3><div style="display:flex;gap:4px;ove
 
 // ================================================================= two-client
 if (MODE === 'two-client') {
+  const verdictPath = resolve(outDir, 'seam-verdict.json') // reset to "running" at module top
   const htmlA = b64(injectShim(SHIM2(1)))
   const htmlB = b64(injectShim(SHIM2(2)))
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
@@ -285,6 +316,26 @@ document.getElementById('b').srcdoc = ${SRC_DECODE(htmlB)};
   writeFileSync(resolve(outDir, 'two-client.png'), shot2 as Buffer)
   const a = await probe(fa), b = await probe(fb)
 
+  // Seam verdict — written the moment the hard asserts are computable, so a
+  // backgrounded run can be consumed early (heavy double-pane 3D scenes take
+  // minutes to render the artifact frames that follow; the seam answer does
+  // not need them). Rewritten with phase:"final" when the run completes —
+  // page errors thrown during the artifact drive still fail the final gate.
+  const seam = {
+    T1_bothBoot: !!(a && b && a.stateUpdates > 0 && b.stateUpdates > 0),
+    T2_playersMutual: !!(a && b && a.players === 2 && b.players === 2),
+    T3_kvCross: !!(a && b && a.shared['__gate_kb'] === 'B' && b.shared['__gate_ka'] === 'A'),
+    W_repaint: pixelDelta(shot1 as Buffer, shot2 as Buffer) > 0.5, // warning only
+  }
+  const seamPass = seam.T1_bothBoot && seam.T2_playersMutual && seam.T3_kvCross && errors.length === 0
+  writeFileSync(verdictPath, JSON.stringify({ phase: 'seam', seamPass, checks: { ...seam, G1_noErrors: errors.length === 0 }, errorsSoFar: errors.length, at: new Date().toISOString() }, null, 2))
+  console.log(`[two-client] SEAM ${seamPass ? 'PASS' : 'FAIL'} — boot=${seam.T1_bothBoot} players=${a?.players}/${b?.players} kvCross=${seam.T3_kvCross} errors=${errors.length} (artifact frames rendering…)`)
+
+  // Artifact phase — fail closed: if a heavy-scene crash / screenshot timeout
+  // throws in here, the seam PASSED but the run could not complete, so we
+  // stamp a terminal phase:"final" verdict (pass:false, aborted) before
+  // exiting non-zero. A poller thus never hangs on phase:"running"/"seam".
+  try {
   // Mid-play artifact (no assertion): everything above happens in the lobby,
   // where round-lifecycle bugs (ghost gone after death, private rounds,
   // misaligned relative rendering) are invisible. Start via the host pane,
@@ -349,14 +400,12 @@ document.getElementById('b').srcdoc = ${SRC_DECODE(htmlB)};
 
   const guestFreezeDelta = pixelDelta(gFrozen1 as Buffer, gFrozen2 as Buffer)
   const checks = {
-    T1_bothBoot: !!(a && b && a.stateUpdates > 0 && b.stateUpdates > 0),
-    T2_playersMutual: !!(a && b && a.players === 2 && b.players === 2),
-    T3_kvCross: !!(a && b && a.shared['__gate_kb'] === 'B' && b.shared['__gate_ka'] === 'A'),
-    G1_noErrors: errors.length === 0,
-    W_repaint: pixelDelta(shot1 as Buffer, shot2 as Buffer) > 0.5, // warning only
+    ...seam,
+    G1_noErrors: errors.length === 0, // recomputed: drive-phase errors count
     W_guestLiveDuringHostFreeze: guestFreezeDelta > 0.5, // warning only
   }
   const pass = checks.T1_bothBoot && checks.T2_playersMutual && checks.T3_kvCross && checks.G1_noErrors
+  writeFileSync(verdictPath, JSON.stringify({ phase: 'final', seamPass: pass, checks, errorsSoFar: errors.length, at: new Date().toISOString() }, null, 2))
   const report = { mode: MODE, html: htmlPath, errors, a, b: b && { ...b, shared: undefined }, checks, playingFrame: 'two-client-playing.png', hostFrozenFrame: 'host-frozen.png', hostFrozenPair: 'host-frozen-pair.png', hostFrozenForMs: HOST_FROZEN_MS, guestPaneDeltaWhileHostFrozen: Number(guestFreezeDelta.toFixed(2)), pass }
   writeFileSync(resolve(outDir, 'report.json'), JSON.stringify(report, null, 2))
   console.log(`[two-client] boot=${checks.T1_bothBoot} players=${a?.players}/${b?.players} kvCross=${checks.T3_kvCross} errors=${errors.length}${checks.W_repaint ? '' : ' (warn: low repaint — static screen?)'}${checks.W_guestLiveDuringHostFreeze ? '' : ' (warn: guest pane static during host-freeze — host-rAF-wired world? or static scene)'}`)
@@ -365,6 +414,17 @@ document.getElementById('b').srcdoc = ${SRC_DECODE(htmlB)};
   await browser.close()
   if (!pass) { console.error('\n❌ TWO-CLIENT SEAM CHECK FAILED — see report.json'); process.exit(1) }
   console.log('✅ two-client seam check passed')
+  } catch (e: any) {
+    // Fail closed: stamp a terminal verdict so a poller never hangs on
+    // phase:"running"/"seam"; artifacts are incomplete, so the run counts
+    // as failed even when the seam asserts had passed.
+    try {
+      writeFileSync(verdictPath, JSON.stringify({ phase: 'final', seamPass: false, aborted: true, error: String(e?.message ?? e).slice(0, 300), errorsSoFar: errors.length, at: new Date().toISOString() }, null, 2))
+    } catch { /* disk gone — stdout still tells the story */ }
+    console.error(`\n❌ TWO-CLIENT artifact phase crashed after seam ${seamPass ? 'PASS' : 'FAIL'} — run counts as failed: ${String(e?.message ?? e).slice(0, 200)}`)
+    try { await browser.close() } catch { /* already gone */ }
+    process.exit(1)
+  }
 }
 
 // ====================================================================== smoke
