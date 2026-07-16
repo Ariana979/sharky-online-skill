@@ -224,6 +224,14 @@ bun <skill>/scripts/room-test.ts --game-id <id>
 Then open `https://sharky.gg/game/<id>` — the game sits in the owner's
 account list; invite/guest join/room chrome all come from the platform.
 
+Skill updates: build.ts prints a one-line notice if a newer skill release
+exists (checked at most once a day, 1.5s timeout, silent otherwise) — for
+git-clone installs by comparing against origin/main, for git-less copies
+(ZIP download / vendored) via the `.release` stamp the distribution repo
+ships. It never updates anything itself — updating is the user's call
+(`git pull --ff-only`, or re-downloading for git-less copies, after they
+say yes).
+
 **6. Online two-client dev loop** against the published game:
 ```bash
 bun <skill>/scripts/dev-serve.ts --html dist/index.html --game-id <id>

@@ -16,9 +16,8 @@ const gameId = args['game-id']
 if (!gameId) { console.error('usage: bun room-test.ts --game-id <published game id>'); process.exit(1) }
 const CHROME = args.chrome || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
-// 1. sign two guest bootstraps on one fresh instance
-const inst = crypto.randomUUID()
-async function guestBootstrap(name: string) {
+// 1. guest bootstraps (two per attempt, on one fresh instance per attempt)
+async function guestBootstrap(inst: string, name: string) {
   const r = await fetch(`https://api.sharky.gg/api/v1/games/${gameId}/bootstrap-guest`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -28,14 +27,10 @@ async function guestBootstrap(name: string) {
   if (j.error_code) throw new Error('bootstrap failed: ' + JSON.stringify(j))
   return j.data
 }
-const bsA = await guestBootstrap('RoomTest-A')
-const bsB = await guestBootstrap('RoomTest-B')
-if (bsA.sync_mode !== 'server_sim') throw new Error(`sync_mode is ${bsA.sync_mode}, expected server_sim — check user_games.authority_mode`)
-console.log('[ok] bootstraps signed · sync_mode=server_sim · game_url =', String(bsA.game_url).slice(-50))
 
 // 2. two clients: iframe the real game_url, inject bootstrap via postMessage
-const PARENT = (bs: unknown) => `<!DOCTYPE html><html><body style="margin:0">
-<iframe id="g" src="${bsA.game_url}" style="width:100vw;height:100vh;border:0"></iframe>
+const PARENT = (bs: any) => `<!DOCTYPE html><html><body style="margin:0">
+<iframe id="g" src="${bs.game_url}" style="width:100vw;height:100vh;border:0"></iframe>
 <script>
 var bs = ${JSON.stringify(bs)};
 document.getElementById('g').addEventListener('load', function () {
@@ -46,28 +41,53 @@ document.getElementById('g').addEventListener('load', function () {
 });
 </script></body></html>`
 
-const browser = await chromium.launch({ headless: true, executablePath: CHROME })
-async function openClient(bs: unknown) {
+// Launched lazily on first use so bootstrap failures (bad game-id, wrong
+// sync_mode) never pay a Chrome start.
+let browser: any = null
+async function openClient(bs: any) {
+  if (!browser) browser = await chromium.launch({ headless: true, executablePath: CHROME })
   const page = await browser.newPage({ viewport: { width: 900, height: 640 } })
   // 3D games can be ~1MB; first /play fetch may be a cold cache
   await page.setContent(PARENT(bs), { waitUntil: 'domcontentloaded', timeout: 90_000 })
   return page
 }
-const A = await openClient(bsA)
-const B = await openClient(bsB)
 const frame = (p: any) => p.frames().find((f: any) => f !== p.mainFrame())
 async function inGame<T>(p: any, fn: () => T): Promise<T | undefined> {
   const f = frame(p)
   return f ? f.evaluate(fn).catch(() => undefined) : undefined
 }
 
-// 3. wait for both nets open
-for (let i = 0; i < 40; i++) {
-  const a = await inGame(A, () => !!(window as any).SharkyNet && (window as any).SharkyNet.stats().stateUpdates >= 0 && (window as any).__DELTA_BRIDGE__?.relaySocket?.readyState === 1)
-  const b = await inGame(B, () => (window as any).__DELTA_BRIDGE__?.relaySocket?.readyState === 1)
-  if (a && b) break
-  await new Promise((r) => setTimeout(r, 500))
-  if (i === 39) throw new Error('relay never opened on both clients')
+// 3. join: bootstrap + open both clients + wait for both relay sockets.
+// The FIRST room after a fresh publish rides a cold chain (cold /play fetch
+// + sim warmup); measured 2026-07-15: the server side warms in ~1-2s, but a
+// client's cold page fetch can outlast this poll window — one in-script
+// fresh-join retry absorbs exactly that case. A genuinely dead room still
+// fails, just one attempt (~30s) later.
+let A: any, B: any
+async function joinOnce(): Promise<void> {
+  const inst = crypto.randomUUID()
+  const bsA = await guestBootstrap(inst, 'RoomTest-A')
+  const bsB = await guestBootstrap(inst, 'RoomTest-B')
+  if (bsA.sync_mode !== 'server_sim') throw new Error(`sync_mode is ${bsA.sync_mode}, expected server_sim — check user_games.authority_mode`)
+  console.log('[ok] bootstraps signed · sync_mode=server_sim · game_url =', String(bsA.game_url).slice(-50))
+  A = await openClient(bsA)
+  B = await openClient(bsB)
+  for (let i = 0; i < 40; i++) {
+    const a = await inGame(A, () => !!(window as any).SharkyNet && (window as any).SharkyNet.stats().stateUpdates >= 0 && (window as any).__DELTA_BRIDGE__?.relaySocket?.readyState === 1)
+    const b = await inGame(B, () => (window as any).__DELTA_BRIDGE__?.relaySocket?.readyState === 1)
+    if (a && b) return
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  throw new Error('relay never opened on both clients')
+}
+try {
+  await joinOnce()
+} catch (e) {
+  if (!String(e).includes('relay never opened')) throw e
+  console.log('[cold start] first room after a fresh publish can take ~1min to warm — retrying with a fresh join')
+  try { await A?.close() } catch {}
+  try { await B?.close() } catch {}
+  await joinOnce()
 }
 console.log('[ok] both clients connected to the room')
 

@@ -52,7 +52,9 @@ const EMAIL_FROM_USER =
   'The account email must come from the USER — the address shown in their sharky.gg '
   + 'account settings. Ask them for it, then re-run with --email <their email>. Never guess '
   + 'or generate an email address, and never use one found in your environment/context '
-  + '(the machine login email is routinely NOT the sharky.gg account email).'
+  + '(the machine login email is routinely NOT the sharky.gg account email). '
+  + 'No terminal for the code prompt? --request-code --email <addr> sends the code and '
+  + 'exits; then --verify-code <code> --email <addr> signs in and publishes.'
 
 let html = ''
 function loadHtml() {
@@ -114,21 +116,39 @@ function networkGuidance(context: string): string {
 }
 
 // First-time sign-in path only (zero cost on the stored-session happy path).
+// A success is stamped next to the session file so the two-phase flow
+// (--request-code, then --verify-code seconds later) doesn't re-run the
+// same two checks; a network break between the runs still surfaces in the
+// actual auth/import calls, which wrap failures in networkGuidance.
+function preflightStampPath(): string {
+  return sessionPath() + '.preflight-ok'
+}
+
 async function preflight(): Promise<void> {
+  try {
+    const [ts, host] = readFileSync(preflightStampPath(), 'utf8').split(' ')
+    const age = Date.now() - Number(ts)
+    // stamp is host-keyed: a pass against one import host never suppresses
+    // the checks for a different --api-base / SHARKY_API_BASE target
+    if (host === apiBase && age >= 0 && age < 10 * 60_000) return
+  } catch { /* no stamp — run the checks */ }
   const checks: Array<[string, string, Record<string, string>]> = [
     ['supabase auth', `${SUPABASE_URL}/auth/v1/settings`, { apikey: SUPABASE_ANON_KEY }],
     ['import api', `${apiBase}/api/health`, {}],
   ]
-  const failed: string[] = []
-  for (const [name, url, headers] of checks) {
+  const failed = (await Promise.all(checks.map(async ([name, url, headers]) => {
     try {
       const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) })
-      if (!r.ok) failed.push(`${name} -> HTTP ${r.status}`)
+      return r.ok ? null : `${name} -> HTTP ${r.status}`
     } catch (e: any) {
-      failed.push(`${name} -> ${e?.message ?? e}`)
+      return `${name} -> ${e?.message ?? e}`
     }
-  }
+  }))).filter(Boolean) as string[]
   if (failed.length) throw new Error(networkGuidance(`[network] preflight failed: ${failed.join('; ')}`))
+  try {
+    mkdirSync(dirname(sessionPath()), { recursive: true })
+    writeFileSync(preflightStampPath(), `${Date.now()} ${apiBase}`)
+  } catch { /* stamp is an optimization, never fatal */ }
 }
 
 function sessionPath(): string {
@@ -271,6 +291,10 @@ async function otpLogin(): Promise<Session> {
 // exits; a second run with --verify-code <code> --email <addr> signs in and
 // goes straight into the publish. If both flags are passed, --request-code wins.
 async function requestCodeOnly(): Promise<never> {
+  const stored = loadSession()
+  console.log(stored
+    ? `[auth] note: a stored session already exists for ${stored.email} — a plain publish (no flags) uses it; continue only to sign in as a different account`
+    : '[auth] no stored session on this machine — OTP sign-in required')
   await preflight()
   const email = await requireEmail(null)
   await sendOtp(email)
@@ -319,6 +343,7 @@ async function ensureSession(): Promise<Session> {
 }
 
 async function callImport(accessToken: string): Promise<{ status: number; json: any }> {
+  console.log(`[import] uploading ${(Buffer.byteLength(html, 'utf8') / 1024).toFixed(0)} KB to the platform…`)
   let resp: Response
   try {
     resp = await fetch(`${apiBase}/api/v1/games/import`, {
@@ -343,6 +368,9 @@ async function callImport(accessToken: string): Promise<{ status: number; json: 
   // the platform (the endpoint always speaks JSON) — say so.
   if (resp.status !== 200 && !json?.error) {
     throw new Error(networkGuidance(`[network] import endpoint answered ${resp.status} with a non-JSON body`))
+  }
+  if (resp.status === 200) {
+    console.log(`[import] accepted — game row written${json?.coverPending ? ', cover job queued' : ''}`)
   }
   return { status: resp.status, json }
 }

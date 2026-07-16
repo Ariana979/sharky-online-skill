@@ -12,7 +12,9 @@
 //   await SharkyNet.ready(); use SharkyNet.send/on/setShared for ALL shared
 //   state; never open your own sockets.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import vm from 'node:vm'
 
 const args: Record<string, string> = {}
@@ -131,3 +133,67 @@ mkdirSync(dirname(outPath), { recursive: true })
 writeFileSync(outPath, out, 'utf8')
 console.log(`[build] ${outPath} (${out.length} bytes) — game ${gamePath} + sharky runtime`)
 console.log(`[build] sim gate: ${gate.detail}`)
+
+// --- skill self-update notice (fact-only; never updates anything) ---
+// Fires only when this skill directory is a git clone of the distribution
+// repo (origin URL contains "sharky-online-skill"); lab snapshots and
+// web-vendored copies have no .git and skip silently. Checked at most once
+// per 24h (stamp beside the publish session file), 1.5s network timeout,
+// silent on any failure. Updating stays the USER's decision — the notice
+// only names the command to run after they approve.
+// Opt out entirely: SHARKY_SKILL_NO_UPDATE_CHECK=1.
+const DIST_REPO_API = 'https://api.github.com/repos/Ariana979/sharky-online-skill/commits/main'
+const DIST_RAW_RELEASE = 'https://raw.githubusercontent.com/Ariana979/sharky-online-skill/main/.release'
+async function skillUpdateNotice(): Promise<void> {
+  try {
+    if (process.env.SHARKY_SKILL_NO_UPDATE_CHECK === '1') return
+    const stampPath = join(homedir(), '.config', 'sharky-online', 'update-check')
+    try {
+      const age = Date.now() - Number(readFileSync(stampPath, 'utf8'))
+      if (age >= 0 && age < 24 * 3600_000) return
+    } catch { /* no stamp — check */ }
+    const stamp = () => {
+      try {
+        mkdirSync(dirname(stampPath), { recursive: true })
+        writeFileSync(stampPath, String(Date.now()))
+      } catch { /* stamp is best-effort */ }
+    }
+    const git = (...a: string[]) =>
+      execFileSync('git', ['-C', skillRoot, ...a], { timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString().trim()
+    let origin = ''
+    try { origin = git('config', '--get', 'remote.origin.url') } catch { origin = '' }
+
+    if (origin.includes('sharky-online-skill')) {
+      // git-clone install: exact sha compare against origin/main
+      const localSha = git('rev-parse', 'HEAD')
+      const resp = await fetch(DIST_REPO_API, {
+        headers: { accept: 'application/vnd.github+json' },
+        signal: AbortSignal.timeout(1500),
+      })
+      if (!resp.ok) return
+      const remoteSha = String(((await resp.json()) as any)?.sha ?? '')
+      stamp()
+      if (!remoteSha || remoteSha === localSha) return
+      console.log(`[skill] distribution repo has a newer revision (local ${localSha.slice(0, 7)} ≠ origin/main ${remoteSha.slice(0, 7)})`)
+      console.log(`[skill] updating is the user's call — ask first, then: git -C ${skillRoot} pull --ff-only`)
+      return
+    }
+
+    // Installed without git (GitHub ZIP / forwarded copy / vendored into a
+    // project): the distribution repo ships a one-line .release stamp —
+    // compare it with the repo's raw main copy. Lab snapshots and the dev
+    // worktree carry no .release and stay silent.
+    let local = ''
+    try { local = readFileSync(join(skillRoot, '.release'), 'utf8').trim().split(/\s+/)[0] ?? '' } catch { return }
+    if (!local) return
+    const resp = await fetch(DIST_RAW_RELEASE, { signal: AbortSignal.timeout(1500) })
+    if (!resp.ok) return
+    const remote = (await resp.text()).trim().split(/\s+/)[0] ?? ''
+    stamp()
+    if (!remote || remote === local) return
+    console.log(`[skill] a newer skill release exists (this copy ${local.slice(0, 7)} ≠ latest ${remote.slice(0, 7)})`)
+    console.log('[skill] this copy was installed without git — updating is the user\'s call: re-download https://github.com/Ariana979/sharky-online-skill (or reinstall via git clone for one-command updates)')
+  } catch { /* never let the notice affect a build */ }
+}
+await skillUpdateNotice()
