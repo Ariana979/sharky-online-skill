@@ -147,10 +147,10 @@ jitter spike.
 setInterval(() => {
   const q = net.quality();   // {tier, rttMs (EMA), updateAgeMs, connected}
   hudChip.textContent = q.tier === 'good' ? '🟢'
-    : q.tier === 'degraded' ? '🟡 网络不稳' : '🔴 连接中断';
+    : q.tier === 'degraded' ? '🟡 unstable link' : '🔴 connection lost';
 }, 1000);
 net.on('connection', (e) => {
-  if (e.kind === 'closed' || e.kind === 'error') showToast('连接断开，自动重连中…');
+  if (e.kind === 'closed' || e.kind === 'error') showToast('connection lost — reconnecting…');
 });
 ```
 
@@ -200,11 +200,10 @@ a discrete-outcome seam: it asserts in seconds against the dev-serve mock
 room through the game's own `__PLAYTEST__` hooks (the `focusScreenPos`
 opt-in family — read hooks ship in the build harmlessly; a state-WRITING
 hook like teleport takes a mock gate, so it never ships live). A
-real-time playthrough proves one extra thing — the course is beatable —
-and a static geometry check against the game's movement envelope (max
-jump arc, speed) proves reachability of a static course without the
-wall-clock; the envelope numbers and any moving-window sections still
-take one real crossing.
+real-time playthrough proves one extra thing — the course is beatable;
+a static geometry check against the game's movement envelope (max jump
+arc, speed) proves reachability of a static course without the
+wall-clock.
 
 ```js
 // game side: the read hook ships; the write hook exists only in the mock room
@@ -332,8 +331,8 @@ LOOK says so. The principle is affordance consistency, not "physics
 everywhere".)
 
 The same law covers **room-level verbs**: a control that LOOKS shared — a
-start button, a countdown, a "new round" — must act on the ROOM
-(`net.start()` / shared state), never just locally. A 发车 button that only
+start button, a countdown, a "new round" — acts on the ROOM
+(`net.start()` / shared state) or reads as broken: a race-start button that only
 dismissed the clicker's own intro overlay read as "start sync is broken" to
 the other player (real two-player report).
 
