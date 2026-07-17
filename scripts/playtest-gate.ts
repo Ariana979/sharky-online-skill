@@ -40,8 +40,9 @@
 //
 // Browser: locates a system Chrome (channel), then Edge, then --chrome <path>.
 // Deps: bare 'playwright-core' import — bun auto-install resolves it (cache
-// hit after first machine use). Measured trap: adding a package.json here
-// DISABLES bun auto-install and breaks clean checkouts; versioned import
+// hit after first machine use). Measured trap: a node_modules directory here
+// or in any ancestor (bun add/install residue) DISABLES bun auto-install and
+// breaks clean checkouts — a lone package.json does not; versioned import
 // specifiers don't resolve either (bun 1.3.13). Bare import is the design.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'

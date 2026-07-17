@@ -29,8 +29,14 @@ entity style, interpolation feel, and all visuals remain entirely yours.
    (latest pose, not every frame); discrete must-arrive ops (finish, score,
    world event) go through `net.sendReliable()` instead. Host the stream on
    a TIMER, not the render loop: hidden/occluded pages freeze rAF to 0Hz
-   but only throttle timers to ~1/s, so a covered window heartbeats instead
+   but only throttle timers (~1/s at first, down to ~1/min under prolonged
+   backgrounding), so a covered window heartbeats instead
    of going silent (single-person two-window testing hits this constantly).
+   In the mock room the freeze is readable in-band: the starved pane's
+   `__ENV_HEALTH__.rafHz` reads 0 and the parent `snapshot()` reports
+   `visible:false` — a ghost that stops moving under those readings is the
+   tab, not the bus (measured: the misread costs minutes of forensics on a
+   healthy build; the one-probe read costs seconds).
 4. **Ghost lifecycle**: map `uid → entity`; create on first op, steer toward
    the latest pose each frame — but SNAP when the target is far (a page
    unfrozen after backgrounding drains its buffered updates in a burst;
@@ -116,19 +122,21 @@ net.sendReliable({ k: 'finish', ms });               // 3: results must arrive
 provided — that's the creative half.
 
 **Degrade contract** (`net.quality()` / `on('connection', {kind:'quality'})`,
-tiers change with ~1s-in/~2s-out hysteresis so UI can bind directly):
-- `degraded` (smoothed op RTT >0.8s, or updates 1-3s stale): widen
+tiers change with ~1.5s-in/~2s-out hysteresis so UI can bind directly):
+- `degraded` (smoothed op RTT >1.1s, updates 1.8–3s stale, or relay ping
+  avg >0.9s): widen
   interpolation buffers, damp cosmetic motion, lengthen claim suspense
   windows, show a subtle ⚠.
 - `critical` (disconnected, or the world >3s stale): reconnect notice,
   gate hard-commit inputs, keep simulating locally.
 
-## 0.9 Adoption skeletons (worked reference — temporary by design)
+## 0.9 Adoption skeletons (worked reference)
 
-Worked reference for the three newest API surfaces. The snippets
-demonstrate; canonical semantics stay in the SKILL.md API block and
-sharky-net.js. Temporary by design — intended for removal once sessions
-wire these correctly without them.
+Worked reference for the quality, claim, replay-guard, and win-path-probe
+surfaces. The snippets demonstrate; canonical semantics for the first
+three stay in the SKILL.md API block and sharky-net.js — the probe's
+semantics live in the Playwright API and the game's own `__PLAYTEST__`
+contract.
 
 **Quality chip + disconnect toast** — display the tier or the EMA
 (`q.rttMs`), not raw single samples: a healthy long-haul link brushes the
@@ -166,9 +174,9 @@ const queued = net.claim({ k: 'grab', id: coin.id }, (op) => {
 if (!queued) rollbackGrab(coin);                 // could not even queue
 ```
 
-(Rules-script variant — spirited-coins, the RF3 sandworm: reconcile from
-`net.game()` instead of local state, with a timeout rollback that revives
-the item when it is neither taken nor pending.)
+(Rules-script variant: when a `__SHARKY_RULES__` script owns the item,
+reconcile from `net.game()` instead of local state, with a timeout rollback
+that revives the item when it is neither taken nor pending.)
 
 **Replay/staleness guard** — split state from effects. Streams (pose) skip
 replayed wholesale; events & KV must APPLY during replay (that is how a
@@ -184,6 +192,39 @@ net.on('op', (op, meta) => {
   if (meta.self || meta.replayed || meta.staleMs > 3000) return;
   playEffects(op);                               // sounds/flash/toasts: live only
 });
+```
+
+**Win-path probe (state-jump, not playthrough)** — the round lifecycle
+(finish → the same winner on every client → restart resets everyone) is
+a discrete-outcome seam: it asserts in seconds against the dev-serve mock
+room through the game's own `__PLAYTEST__` hooks (the `focusScreenPos`
+opt-in family — read hooks ship in the build harmlessly; a state-WRITING
+hook like teleport takes a mock gate, so it never ships live). A
+real-time playthrough proves one extra thing — the course is beatable —
+and a static geometry check against the game's movement envelope (max
+jump arc, speed) proves reachability of a static course without the
+wall-clock; the envelope numbers and any moving-window sections still
+take one real crossing.
+
+```js
+// game side: the read hook ships; the write hook exists only in the mock room
+window.__PLAYTEST__ = { state: () => ({ phase, round, winner }) };
+if (window.__SHARKY_LOCAL_BUS__)                  // present only under the mock harnesses
+  __PLAYTEST__.teleport = i => respawnAt(i);      // (dev-serve / gate) — never on the live page
+// probe side (playwright-core; dev-serve panes carry ?p=1 / ?p=2, no name attr)
+const host  = page.frames().find(f => f.url().includes('p=1'));
+const guest = page.frames().find(f => f.url().includes('p=2'));
+await host.evaluate(i => __PLAYTEST__.teleport(i), LAST_STAGE); // args cross explicitly —
+await host.evaluate(() =>                                       // evaluate carries no closures
+  dispatchEvent(new KeyboardEvent('keydown', { key: 'w' })));   // one real input crosses the line
+await until(async () => {
+  const h = await host.evaluate(() => __PLAYTEST__.state());
+  const g = await guest.evaluate(() => __PLAYTEST__.state());
+  return h.winner && g.winner && sameState(h, g); // a winner EXISTS on both panes — and agrees
+});
+await host.evaluate(() => dispatchEvent(new KeyboardEvent('keyup', { key: 'w' })));
+// then the host restart: round+1 and a reset world on BOTH panes — the
+// class where a "start" that only cleared the clicker's own overlay shipped
 ```
 
 ## 1. Ghost soft-contact (zero platform involvement)
@@ -286,7 +327,7 @@ for (const o of OBSTACLES) {
 }
 ```
 
-(Intentional pass-through — ghosts, top-down puzzles — is fine when the
+(Intentional pass-through — top-down puzzles — is fine when the
 LOOK says so. The principle is affordance consistency, not "physics
 everywhere".)
 
@@ -296,20 +337,7 @@ start button, a countdown, a "new round" — must act on the ROOM
 dismissed the clicker's own intro overlay read as "start sync is broken" to
 the other player (real two-player report).
 
-## 3. Racing crib (the three subsystems that decide feel)
-
-- **Camera**: smooth in ANGLE space, not world space —
-  `camYaw += angDiff(targetYaw, camYaw) * (1 - e^(-k·dt))`, then place the
-  camera from camYaw; look AT the car (taper any look-ahead to zero while
-  the user orbits). World-space position lerp loses the car in sustained
-  turns (measured failure, gotcha #16).
-- **Fixed-timestep physics**: accumulate dt, step at 120Hz, clamp
-  accumulator; feel becomes framerate-independent.
-- **Slip decomposition**: track longitudinal/lateral velocity separately,
-  decay lateral exponentially (grip), and add full-lock tire scrub so
-  donuts converge instead of spiraling.
-
-## 4. What NOT to fight
+## 3. What NOT to fight
 
 - Don't build peer-to-peer physics consensus over the bus — 400ms makes it
   rubber-band garbage. Ghosts + local feel + rules arbitration is the

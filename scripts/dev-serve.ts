@@ -69,6 +69,7 @@ window.__MOCK_ROOM__ = {
         var w = f.contentWindow;
         o.errors = (w.__ERRS__ || []).slice(-5);
         o.focus = (w.__PLAYTEST__ && typeof w.__PLAYTEST__.focusScreenPos === 'function') ? w.__PLAYTEST__.focusScreenPos() : null;
+        o.env = w.__ENV_HEALTH__ || null;
       } catch (e) { o.err = String(e).slice(0, 80); }
       out.frames.push(o);
     });
@@ -86,6 +87,24 @@ const MOCK_SHIM = `<script>
   window.__ERRS__ = [];
   window.addEventListener('error', function (e) { window.__ERRS__.push(String(e.message || e).slice(0, 200)); });
   window.addEventListener('unhandledrejection', function (e) { window.__ERRS__.push('rejection: ' + String(e.reason).slice(0, 200)); });
+  // env health, in-band: hidden/occluded panes freeze rAF while wall time
+  // runs on. rafHz 0 = this pane's render loop is frozen; -1 = not yet
+  // sampled (first second of life, or right after a visibility flip).
+  window.__ENV_HEALTH__ = { rafHz: -1, visibility: document.visibilityState };
+  var rafN = 0, envLastN = 0, envLastT = Date.now();
+  requestAnimationFrame(function envLoop() { rafN++; requestAnimationFrame(envLoop); });
+  document.addEventListener('visibilitychange', function () {
+    // re-baseline: without this the first tick after a flip averages the
+    // whole hidden stretch into dt and reports rafHz≈0 on a visible pane
+    envLastN = rafN; envLastT = Date.now();
+    window.__ENV_HEALTH__ = { rafHz: -1, visibility: document.visibilityState };
+  });
+  setInterval(function () {
+    var now = Date.now(), dt = (now - envLastT) / 1000;
+    if (!(dt > 0)) dt = 1; // wall-clock step-back guard
+    window.__ENV_HEALTH__ = { rafHz: Math.round((rafN - envLastN) / dt), visibility: document.visibilityState };
+    envLastN = rafN; envLastT = now;
+  }, 1000);
   window.__SHARKY_LOCAL_BUS__ = {
     send: function (action) { parent.postMessage({ ns: 'sharky-local-bus', action: action }, '*'); return true; },
     onState: function (cb) { window.addEventListener('message', function (ev) {
@@ -179,7 +198,7 @@ for (let i = 0; i < 20; i++) {
   }
 }
 if (!started) throw new Error(`[dev-serve] ports ${port}-${port + 19} are all busy`)
-if (chosenPort !== port) console.log(`[dev-serve] port ${port} busy → using ${chosenPort}`)
+if (chosenPort !== port) console.log(`[dev-serve] port ${port} busy → using ${chosenPort} (the Claude Preview panel attaches only to the port its launch.json declares — a panel-spawned instance that walked here stays unreachable to it; a fresh panel spawn binds ${port} once it frees)`)
 // Snippet port: hashed from the html's absolute path (stable per project,
 // distinct across projects/chats) and never equal to THIS instance's port —
 // the Claude Preview panel only attaches to servers it spawned itself, so
@@ -192,4 +211,4 @@ console.log(`[dev-serve] pid ${process.pid} — stop: kill ${process.pid}`)
 console.log(`[dev-serve] hot: the --html file is re-read on every request — rebuild, then just reload the page (no restart needed)`)
 console.log(`[dev-serve] live-play it (author-time eyes): open the room in a browser; if wiring the Claude Preview panel, it spawns its OWN instance from this snippet (this process stays separate):`)
 console.log(`  { "name": "sharky-dev", "runtimeExecutable": "bun", "runtimeArgs": ["${process.argv[1]}", "--html", "${htmlPath}", "--port", "${snippetPort}"], "port": ${snippetPort} }`)
-if (!gameId) console.log(`[dev-serve] the room's parent page exposes __MOCK_ROOM__.snapshot() — visible/phase/seq/players + per-frame errors/focus in one eval; the top bar shows a live TAB HIDDEN warning when the tab is backgrounded (rAF frozen, timers throttled)`)
+if (!gameId) console.log(`[dev-serve] the room's parent page exposes __MOCK_ROOM__.snapshot() — visible/phase/seq/players + per-frame errors/focus/env in one eval; each pane also carries __ENV_HEALTH__ {rafHz, visibility} (rafHz 0 = that pane's rAF is frozen; -1 = not yet sampled); the top bar shows the same as a live TAB HIDDEN warning`)

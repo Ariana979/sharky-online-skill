@@ -98,7 +98,7 @@
   // platform bands: healthy op RTT median ~400ms / p95 ~780ms — a NORMAL
   // long-haul link brushes 800, so good runs to 1100 (EMA cushion past p95);
   // the 3s line matches the staleMs drop threshold and the keyframe
-  // insurance interval. Hysteresis: enter a worse tier after ~1s sustained,
+  // insurance interval. Hysteresis: enter a worse tier after ~1.5s sustained,
   // return after ~2s of better readings — jitter must not flap the tier.
   var QUALITY_RTT_DEGRADED_MS = 1100;
   var QUALITY_FRESH_DEGRADED_MS = 1800; // idle rooms tick ~1/s (sim clock) — 1000 sat on the beat edge

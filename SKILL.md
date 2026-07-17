@@ -68,8 +68,9 @@ net.claim(op, cb)   // sendReliable + confirm when YOUR op returns through the
 net.quality()       // {tier: good|degraded|critical, rttMs, updateAgeMs} —
                      // freshness-first with hysteresis; tier changes also emit
                      // on('connection', {kind:'quality', tier}). Measured
-                     // bands: good = smoothed op RTT ≤1.1s & updates ≤1.8s
-                     // fresh; critical = disconnected or world stale >3s.
+                     // bands: good = smoothed op RTT ≤1.1s, updates ≤1.8s
+                     // fresh & relay ping ≤0.9s; critical = disconnected
+                     // or world stale >3s.
 net.connected()     // live link state; net.on('connection', ({kind}) => {})
                      // kind: open|closed|error|epoch — surface it in the UI:
                      // a silent stall is otherwise indistinguishable from
@@ -79,8 +80,8 @@ net.stats()         // { sent, applied, lastRttMs, relayRttMs, connected,
                      //   epoch, stateUpdates, ... }
 ```
 
-Worked adoption snippets for the three newest surfaces (quality chip,
-claim pending-then-reveal, replay/staleness guard) sit in
+Worked adoption snippets for the quality chip, claim pending-then-reveal,
+and replay/staleness guard sit in
 `references/hard-parts.md` §0.9 — they demonstrate; the semantics above
 stay canonical.
 
@@ -112,6 +113,7 @@ bun <skill>/scripts/build.ts --game my-game.html --title "My Game" \
 ```bash
 bun <skill>/scripts/playtest-gate.ts --html dist/index.html                # smoke, ~10s
 bun <skill>/scripts/playtest-gate.ts --html dist/index.html --two-client   # bus seam
+bun <skill>/scripts/playtest-gate.ts --html dist/index.html --filmstrip    # 3 viewports × drive
 ```
 `--two-client` writes `dist/playtest/seam-verdict.json` in phases:
 `"running"` at start, `"seam"` once the hard asserts are decided (~11s,
@@ -122,8 +124,9 @@ double-pane 3D build; a crashed artifact phase still stamps a terminal
 file as soon as `"seam"` lands.
 Smoke asserts zero page errors on the built bytes at one desktop viewport
 (repaint is reported as a warning — static-by-design screens exist); in a
-terminal-CLI session there is no preview tool, so smoke is the only render
-check available there. `--two-client` runs two mock clients on one local
+terminal-CLI session there is no preview tool, so smoke is the fastest
+render check available there (the filmstrip below is the other ready-made
+check). `--two-client` runs two mock clients on one local
 bus and asserts the seam invariants: both boot and receive state,
 `players()` shows both on both sides, shared-KV writes cross both ways —
 two clients probe the N-player bus, they don't imply a 2-player game. It
@@ -138,6 +141,17 @@ guest pane stays pixel-static through the freeze; the frames are for eyes,
 no hard assertion).
 The gate finds a system Chrome/Edge by itself (`--chrome <path>` overrides;
 a browserless Linux box needs `bunx playwright install chromium` once).
+`--filmstrip` drives the game for 10s (turns + camera drag) and frames it
+at three viewports (desktop / wide-retina / mobile 390×844@3x →
+`dist/playtest/filmstrip.html`) — the only ready-made mobile/retina
+frames among the shipped checks (~90-150s full; `--viewport mobile` alone
+runs ~50s — a scoped run can't see cross-viewport regressions and
+report.json records it as scoped). The desktop eye is the live preview
+when one exists; these frames are the ready-made eyes everywhere else. A
+game exposing `window.__PLAYTEST__.focusScreenPos()` (normalized {x,y} of
+the main object) also gets the central-band assert (≥80% of samples).
+Frames only verify what is compared against INTENT — they carry no signal
+until an eye reads them.
 
 **3. Iterate locally** — offline mock room with identical ordering semantics
 (two players side by side, no credentials needed):
@@ -146,38 +160,31 @@ bun <skill>/scripts/dev-serve.ts --html dist/index.html   # room at / (and /dev 
 ```
 
 **3.4 Author-time live play** — most bugs get caught here rather than in
-the checks (measured across every lab run): exploratory play reaches the
+the checks (consistently measured): exploratory play reaches the
 taste-level issues no scripted check will, and real inputs — ramming
 props, leaving the play area, mid-session restarts, input spam — are
 exactly what happy-path drives and autopilots never produce and the first
-thing a real player does. Any live preview tool (e.g. Claude Preview / a
-browser) pointed at dev-serve lands inside the mock room already (`/` and
-`/dev` are the same page; navigating away loses page context). dev-serve
-prints a ready-to-paste launch.json snippet, and the room's parent page
-exposes `__MOCK_ROOM__.snapshot()` — visible/phase/seq/players plus
-per-frame errors/focus in one eval. The §2.5 checks assert seam
-invariants and zero page errors; they do not evaluate feel — feel only
-shows up in play. Environment fact: browsers freeze rAF and throttle
+thing a real player does. A browser pointed at dev-serve lands inside the
+mock room already (`/` and `/dev` are the same page; navigating away loses
+page context). The Claude Preview panel is different: it only attaches to
+servers it spawns itself from `.claude/launch.json` — it cannot adopt an
+already-running dev-serve. dev-serve prints a ready-to-paste snippet whose
+port is per-project-hashed and never its own, so the panel's instance and a
+manually-started one coexist; a hand-written config on 5199 (the manual
+default) collides with exactly that. The room's parent page exposes
+`__MOCK_ROOM__.snapshot()` — visible/phase/seq/players plus per-frame
+errors/focus/env in one eval, and every mock pane carries
+`__ENV_HEALTH__` {rafHz, visibility}. The §2.5 checks assert declared
+invariants, and discrete outcomes — finish, winner, round restart — are
+state-assertable in the mock room in seconds (hard-parts §0.9 has the
+worked probe; it rides the game's own `__PLAYTEST__` hooks). That takes
+the wall-clock out of one check class — taste and the real-input bug
+classes above stay with play. Environment fact: browsers freeze rAF and throttle
 timers in hidden/background tabs — the room's top bar shows a live TAB
 HIDDEN warning; a dead-looking game under a hidden tab is the instrument,
-not the game.
-
-**3.5 Filmstrip (multi-viewport motion frames)**:
-```bash
-bun <skill>/scripts/playtest-gate.ts --html dist/index.html --filmstrip    # 3 viewports × drive, ~90s
-# CSS fix at one width? --viewport mobile re-runs just it (≈1/3 of the full
-# pass); the full 3-viewport run stays the default — scoped runs can't see
-# cross-viewport regressions, and report.json records scoped runs as such.
-```
-Renders a 10s turning + camera-drag drive into 8 frames per viewport
-(desktop / wide-retina / mobile 390×844@3x) plus
-`dist/playtest/filmstrip.html` — the only source of mobile/retina frames;
-in a terminal-CLI session, or when no live preview is usable, these frames
-are the only eyes available. If the game exposes
-`window.__PLAYTEST__.focusScreenPos()` → normalized {x,y} of the player's
-main object, it additionally asserts the focus stays in the central band
-≥80% of samples. (Frames only verify what is compared against INTENT —
-put a human eye on them.)
+not the game (`__ENV_HEALTH__.rafHz` reads 0 there once the next ~1s
+sample lands, -1 before it — one probe separates a frozen tab from broken
+sync).
 
 **4. Publish — only AFTER the user's acceptance.** When you would normally
 call the game done, hand the user the dev-serve link **instead of
@@ -239,7 +246,7 @@ bun <skill>/scripts/room-test.ts --game-id <id>
 Then open `https://sharky.gg/game/<id>` — the game sits in the owner's
 account list; invite/guest join/room chrome all come from the platform.
 
-Skill updates: build.ts prints a one-line notice if a newer skill release
+Skill updates: build.ts prints a short notice if a newer skill release
 exists (checked at most once a day, 1.5s timeout, silent otherwise) — for
 git-clone installs by comparing against origin/main, for git-less copies
 (ZIP download / vendored) via the `.release` stamp the distribution repo

@@ -72,7 +72,7 @@
         roundBtn = $('round-btn'), resultCard = $('result-card'),
         resultText = $('result-text'), labelBox = $('labels');
 
-  /* ——— seam: identity (hard-parts §0.7) ———
+  /* ——— seam: identity (hard-parts §0 fact 7) ———
      Names come from net.players()[uid].name (platform nicknames; they
      arrive/update via the 'players' event). op.__tag / net.tag is a
      transport tag, NOT identity — never display it. */
@@ -170,7 +170,7 @@
     own.mat.opacity = me.out ? 0.35 : 1;
   }
 
-  /* ——— seam: pose stream (§0.1/§0.3 + death visibility) ———
+  /* ——— seam: pose stream (§0 fact 1/§0 fact 3 + death visibility) ———
      Send the LATEST pose on a ~11/s cadence (coalesce — never every frame:
      the ≤15/s budget is shared with the sendReliable drain, and a saturated
      stream starves queued must-arrive ops). Streams stay lossy — never
@@ -190,15 +190,15 @@
   let round = 0, roundOver = false, resultLine = '';
   net.on('op', (op, meta) => {
     if (op.k === 'pose') {                                    // stream op
-      if (meta.self || meta.uid === net.me().id) return;      // §0.1 own stream is already echoed locally
-      if (meta.replayed) return;                              // §0.2 history, not "now"
-      if (meta.staleMs > 3000) return;                        // §0.2 catch-up backlog after a frozen page
+      if (meta.self || meta.uid === net.me().id) return;      // §0 fact 1 own stream is already echoed locally
+      if (meta.replayed) return;                              // §0 fact 2 history, not "now"
+      if (meta.staleMs > 3000) return;                        // §0 fact 2 catch-up backlog after a frozen page
       const g = ghosts[meta.uid] || (ghosts[meta.uid] = makeAvatar(meta.uid));
       g.target = op; g.lastSeen = performance.now();
     }
     // World events are the opposite of streams on BOTH counts: the sender
     // applies its own event from the bus too (skipping self here would
-    // leave the clicker in a private round — the O6-class bug), and
+    // leave the clicker in a private round everyone else never enters), and
     // replayed 'round' ops are CONSUMED, not skipped — that is exactly how
     // a latecomer catches up. The n > round guard keeps it idempotent.
     if (op.k === 'round' && op.n > round) applyRound(op.n);
@@ -221,7 +221,7 @@
     showBanner('ROUND ' + n);
   }
   roundBtn.addEventListener('click', () => {
-    if (net.isHost() && roundOver) net.sendReliable({ k: 'round', n: round + 1 }); // §0.3 must-arrive
+    if (net.isHost() && roundOver) net.sendReliable({ k: 'round', n: round + 1 }); // §0 fact 3 must-arrive
   });
 
   /* ——— taste: the round-END rule (last one standing) is the game's own —
@@ -289,7 +289,7 @@
     const ids = Object.keys(net.players());
     roster.innerHTML = ids.map(id =>
       `<div>${nameOf(id)}${id === net.me().id ? ' — you' : ''}</div>`).join('') || '…';
-    // §0.5 lobby legibility: show the count; when solo, say how friends
+    // §0 fact 5 lobby legibility: show the count; when solo, say how friends
     // join (a fresh room otherwise reads as broken multiplayer, gotcha 15b).
     hint.textContent = ids.length < 2
       ? "solo so far — friends join via the room's Invite link"
@@ -299,7 +299,7 @@
     startBtn.textContent = host ? 'START' : 'waiting for host…';
   }
 
-  /* ——— taste: ghost motion feel (the §0.4 lifecycle around it is seam) ——— */
+  /* ——— taste: ghost motion feel (the §0 fact 4 lifecycle around it is seam) ——— */
   const GHOST_IDLE_MS = 10000;    // silent but connected: mark idle (💤)
   const GHOST_DISPOSE_MS = 60000; // long-silence backstop (mock rosters are sticky)
   function stepGhosts(dt) {
@@ -307,7 +307,7 @@
     for (const uid in ghosts) {
       const g = ghosts[uid], t = g.target;
       if (t) {
-        // §0.4 snap-when-far: an unfrozen page drains buffered updates in a
+        // §0 fact 4 snap-when-far: an unfrozen page drains buffered updates in a
         // burst — without a snap threshold the ghost visibly replays the
         // missed trajectory. Near targets keep the smooth steer (taste).
         const dx = t.x - g.mesh.position.x, dz = t.z - g.mesh.position.z;
@@ -320,13 +320,13 @@
         }
         setY(g, t.y || 0);
         // The transport rule is "never go SILENT while out" (silence reads
-        // as departed, §0.4) — but what to RENDER for an out player is
+        // as departed, §0 fact 4) — but what to RENDER for an out player is
         // taste: here the body hides and the moment is announced once;
         // the HUD count keeps the state legible.
         if (t.out && !g.wasOut) showBanner(nameOf(uid) + ' is OUT');
         g.wasOut = !!t.out;
       }
-      // §0.4 existence = the server's connection truth: net.players() drops
+      // §0 fact 4 existence = the server's connection truth: net.players() drops
       // real leavers (relay grace ~5s) while an idle or backgrounded player
       // stays listed — so they STAND at the last pose instead of vanishing
       // (background pages get timers throttled to as little as 1/min;

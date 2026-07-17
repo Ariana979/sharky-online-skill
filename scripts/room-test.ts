@@ -5,8 +5,12 @@
 // Signs two guest bootstraps, joins the real server_sim room with two headless
 // clients loading the real game_url, then asserts the sync bus works:
 // relay open → START → playing → cross-client ordered op delivery + RTT.
-// Requires playwright-core resolvable (run from a directory that has it, or
-// `bun add playwright-core` once inside the skill folder).
+// playwright-core resolves by bare import (bun auto-installs it on first
+// run, same as playtest-gate). Measured trap: a node_modules directory in
+// the skill folder or any ancestor — e.g. bun add/install residue —
+// DISABLES bun auto-install and breaks clean checkouts (a lone
+// package.json does not; bun 1.3.13). Bare import is the design; the
+// skill folder stays node_modules-free.
 import { chromium } from 'playwright-core'
 
 const args: Record<string, string> = {}
@@ -14,7 +18,14 @@ const argv = process.argv.slice(2)
 for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) args[argv[i].slice(2)] = argv[i + 1] ?? ''
 const gameId = args['game-id']
 if (!gameId) { console.error('usage: bun room-test.ts --game-id <published game id>'); process.exit(1) }
-const CHROME = args.chrome || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+// browser discovery mirrors playtest-gate: system Chrome, then Edge, then
+// the classic macOS path; --chrome <path> overrides everything.
+async function launchBrowser() {
+  if (args.chrome) return chromium.launch({ headless: true, executablePath: args.chrome })
+  try { return await chromium.launch({ headless: true, channel: 'chrome' }) } catch (e) {}
+  try { return await chromium.launch({ headless: true, channel: 'msedge' }) } catch (e) {}
+  return chromium.launch({ headless: true, executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' })
+}
 
 // 1. guest bootstraps (two per attempt, on one fresh instance per attempt)
 async function guestBootstrap(inst: string, name: string) {
@@ -45,7 +56,7 @@ document.getElementById('g').addEventListener('load', function () {
 // sync_mode) never pay a Chrome start.
 let browser: any = null
 async function openClient(bs: any) {
-  if (!browser) browser = await chromium.launch({ headless: true, executablePath: CHROME })
+  if (!browser) browser = await launchBrowser()
   const page = await browser.newPage({ viewport: { width: 900, height: 640 } })
   // 3D games can be ~1MB; first /play fetch may be a cold cache
   await page.setContent(PARENT(bs), { waitUntil: 'domcontentloaded', timeout: 90_000 })

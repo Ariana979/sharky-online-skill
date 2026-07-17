@@ -41,14 +41,19 @@
 
   const glyphFor = t => { let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return GLYPHS[h % GLYPHS.length]; };
 
-  function drawCursor(tag, x, y) {
-    let c = cursors[tag];
+  // identity: cursors are keyed by meta.uid and named from net.players() —
+  // op.__tag / net.tag is a transport tag, not identity (hard-parts fact 7).
+  const label = uid => { const p = net.players()[uid]; return ((p && p.name) ? p.name : uid.slice(0, 4)) + (uid === net.me().id ? ' (you)' : ''); };
+
+  function drawCursor(uid, x, y) {
+    let c = cursors[uid];
     if (!c) {
       c = document.createElement('div');
       c.className = 'cursor';
-      c.innerHTML = `<div class="glyph">${glyphFor(tag)}</div><div class="tag">${tag.slice(0, 4)}${tag === net.tag ? ' (you)' : ''}</div>`;
+      c.innerHTML = `<div class="glyph">${glyphFor(uid)}</div><div class="tag"></div>`;
+      c.querySelector('.tag').textContent = label(uid);
       arena.appendChild(c);
-      cursors[tag] = c;
+      cursors[uid] = c;
     }
     c.style.left = (x * 100) + '%';
     c.style.top = (y * 100) + '%';
@@ -66,7 +71,7 @@
   // Local echo (zero-latency) + bus broadcast (authoritative ordering).
   arena.addEventListener('mousemove', e => {
     const x = e.clientX / innerWidth, y = e.clientY / innerHeight;
-    drawCursor(net.tag, x, y);
+    drawCursor(net.me().id, x, y);
     net.send({ k: 'pos', x, y });          // net throttles to a safe rate itself
   });
   arena.addEventListener('click', e => {
@@ -77,10 +82,14 @@
 
   // Ordered ops from everyone (self echoes included, flagged via meta.self).
   net.on('op', (op, meta) => {
-    if (meta.self) return;                 // own inputs already echoed locally
-    if (op.k === 'pos') drawCursor(op.__tag, op.x, op.y);
+    if (meta.self || meta.uid === net.me().id) return; // own inputs already echoed locally
+    if (meta.replayed || meta.staleMs > 3000) return;  // history/backlog: streams would park a
+                                                       // dead cursor, one-shot effects would burst
+    if (op.k === 'pos') drawCursor(meta.uid, op.x, op.y);
     if (op.k === 'ping') ripple(op.x, op.y);
   });
+  // names arrive/update via the players event — live cursors relabel then
+  net.on('players', () => { for (const uid in cursors) { const t = cursors[uid].querySelector('.tag'); if (t) t.textContent = label(uid); } });
 
   // isHost()/me() are live polls — on the real page roles resolve async
   // (seconds, gotcha 15c), so render the button from CURRENT state each

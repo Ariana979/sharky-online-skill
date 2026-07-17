@@ -1,5 +1,8 @@
 # Practice-derived gotchas (every one hit for real, 2026-07-02/03)
 
+Numbers are stable IDs, not positions — entries sit in topic sections, so
+a numeric hunt needs a text search, not a scroll.
+
 ## The sim sandbox (single most important section)
 
 1a. **The sim's code source is the `game_url` HTML.** The sim (colocated with
@@ -95,6 +98,13 @@
 15. **L1 lint scans raw source INCLUDING comments** — writing "localStorage"
     in a comment trips `forbidden_pattern` (matters if you also ship contract
     games; the shim template is already clean).
+18. **A background command piped through a filter loses its banner.**
+    `bun dev-serve.ts … | head` backgrounded: the server flushes its lines,
+    but `head`'s own stdout is block-buffered off-tty and it exits only on
+    enough input lines or EOF — a long-running server supplies neither, so
+    the printed URL, chosen port and launch.json snippet sit in the
+    filter's buffer indefinitely, which reads as "no output" and invites
+    guessing the port from docs. Un-piped background output lands live.
 
 ## Platform room semantics (why "multiplayer doesn't work" reports happen)
 
@@ -125,7 +135,9 @@
 ## Verification shape
 
 16. **Sightless verification ships sighted bugs.** Rules distilled from real
-    misses: input scripts must include TURNS and camera drags;
+    misses (the founding one: a camera lerping its position in WORLD space
+    loses the car in sustained turns — angle-space smoothing doesn't, and no
+    single frame shows it): input scripts must include TURNS and camera drags;
     assert over TIME (frame sequences), not single frames; test the user's
     actual viewport class (wide retina ≠ 1280×720 headless default); and put
     a human eyeball on the filmstrip before handover. The playtest gate

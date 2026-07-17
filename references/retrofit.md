@@ -24,10 +24,11 @@ Each hit belongs to one of: pure rendering · local feel (input smoothing,
 camera) · single-player state (own HP, own animation) · room-wide rules
 (phases, countdowns, waves) · driver-private simulation (AI, spawners).
 The first three classes are untaxed — they stay exactly as written. Only
-the last two are seam work. Room-wide rules meet hard-parts §0.8: a
+the last two are seam work. Room-wide rules meet hard-parts §0 fact 8: a
 deadline written on a page clock dies with its page; written as absolute
 shared-clock time T (`net.on('update', st => st.clock)`, sim seconds —
-anchoring recipe in §0.6) it is recomputable on every client at any moment.
+anchoring recipe in §0 fact 6) it is recomputable on every client at any
+moment.
 
 ## 2. Inventory the driver-private decisions
 
@@ -46,7 +47,7 @@ a seed derived from the round number gives every client the same default.
 ## 3. Strip room-wide progression out of the render loop
 
 The shape that breaks (measured: one backgrounded driver froze every
-countdown in the room — §0.8):
+countdown in the room — §0 fact 8):
 
     function hostLoop() {
       worldTime += dt; advance(worldTime); broadcast()
@@ -76,7 +77,7 @@ countdowns, scheduled waves, periodic machinery, deterministic animation.
 Not derivable (needs a driver stream): post-contact NPC poses, running
 physics, live AI paths. For the streamed part, a simulation progress
 counter inside the stream is the observable that distinguishes a live
-simulation from a live socket (§0.8) — and the takeover/freeze rule on
+simulation from a live socket (§0 fact 8) — and the takeover/freeze rule on
 driver death is a game-rule decision, not a platform default.
 
 ## Narrative material: story beats as world events
@@ -98,23 +99,25 @@ back-fills the recent tail. Round-reset games self-heal without this (each
 round rebuilds the world); persistent-progression stories do not.
 Catch-up splits in two: STATE applies immediately and silently — subtitles
 skipped, the callbacks embedded in dialogue lines still execute, so doors
-open and flags set; the missed pure-dialogue lines queue into a click-paced
-recap/log the player paces themself (skip always available; camera
-cutscenes degrade to one-line event cards). Two measured traps: a
+open and flags set; the missed pure-dialogue lines are presentation-layer
+catch-up whose form is the game's own call (a self-paced recap/log is one
+working shape). Two measured traps: a
 synchronous quiet flag does NOT reach setTimeout chains — sounds, fades and
 chapter cards fire seconds after the drain unless the delayed landing sites
 re-check; and "skip my own ops" must exempt replay (skip only when
 `meta.self && !meta.replayed`) or a rejoining player's own past beats are
 swallowed and their flags desync from the room. Scene transitions take a
 monotonic guard — index the stages, refuse backward moves; replay races and
-stale timers otherwise drag the room back (orthogonal to §0.8 deadlines:
+stale timers otherwise drag the room back (orthogonal to §0 fact 8
+deadlines:
 one keeps time recomputable, the other keeps state from regressing).
-Presentation splits by layer (measured ruling from a live playtest):
-dialogue reads naturally as radio/broadcast — everyone hears it;
-forced-camera cutscenes play for everyone; the ACT of doing a task never
-steals another player's camera — others see the world consequence. Personal
-flavor interactions (lore peeks, side chats) can stay local: the shared
-registry doubles as the whitelist of what advances the story.
+The seam decides only WHAT is shared: beat triggers and their world
+consequences reach every client, and the shared registry doubles as the
+whitelist of what advances the story; personal flavor interactions (lore
+peeks, side chats) can stay local. HOW a client presents a shared beat —
+dialogue as broadcast or ambient, cutscene or event card, whose camera
+moves — is presentation and stays the game's own call (one live-playtest
+data point: a task that stole another player's camera read as broken).
 
 ## Other seam points of a finished original
 
