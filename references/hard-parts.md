@@ -259,8 +259,9 @@ out of ghost overlap; nobody arbitrates, small divergence is fine for
 casual play, and your own object stays locally authoritative so nothing
 conflicts.
 
-Measured (2026-07-07, kart racer built from this file's earlier
-velocity-spring snippet): a velocity-only nudge is imperceptible at
+Measured (2026-07-07, kart racer built from the velocity-spring
+snippet an earlier revision of this file carried): a velocity-only
+nudge is imperceptible at
 driving speed — peak push ≈3% of vehicle speed across the ~0.08s overlap
 window reads as driving straight THROUGH the other player. Position
 resolution (clamp yourself out of the overlap, exactly like a wall hit)
@@ -295,67 +296,50 @@ effect (`meta.replayed`, so rejoin replay doesn't re-shove), round-stamped,
 rate-limited per victim — covered it in ~15 lines (measured 2026-07-17,
 sumo arena build).
 
-Two pipeline consequences (four live rounds, 2026-07-17/18). First,
+Two pipeline consequences (live-measured 2026-07-17/18). First,
 physics: an ADDED impulse is eaten by the victim's own momentum — in
 a mutual ram, (impulse − closing speed)/friction can be near zero, so
-the knockback barely exists and no screen can show what isn't there.
-A knockback that must read has to SET velocity: at op arrival on the
-victim, v' = v − (v·n̂)n̂ + |J|n̂ — kill the component along the
-impulse, keep the perpendicular, then apply (the arcade convention);
-real displacement becomes impulse/friction regardless of approach.
+the knockback barely exists. A knockback that must read has to SET
+velocity at op arrival on the victim: v' = v − (v·n̂)n̂ + |J|n̂; real
+displacement becomes impulse/friction regardless of approach speed.
 Second, visibility: every other screen sees the shove MOVE the victim
-only through the victim's pose stream, throttled ~100ms and a relay
-RTT behind (~0.5–1s live) — at contact time there is nothing true a
-screen can move the victim's ghost with. Local echo of YOUR OWN body
-is always sound (you own that physics); "echoing" someone else's body
-is prediction of an un-owned body, and all four mechanisms that tried
-it failed live. That ladder closes at the category, not at a rung —
-every patch to a rung IS the next rung, each needing one more piece
-of the victim's world: an op-handler echo (round-trip late; running
-it ungated on the detecting screen instead is the same unfounded
-claim — the ghost has no true post-hit state to show, the `meta.self`
-gate placement was never the flaw); displacing the drawn entity
-(steered back to the stale pose in ~100ms); displacing the steer
-target (in-flight pre-contact poses replace it — "bounces back, then
-flies"; filtering those poses needs clocks and RTT, the next rung); a
-truth-sized decaying offset with pose-stream pay-down (needed the
-victim's velocity, the link's RTT, their post-hit friction — and
-still overshot through arena walls it knew nothing about, far past
-where the victim really stopped; the piece after that would have been
-their live input). The mechanisms that survived all four rounds share
-one property: they claim no position, or only a KNOWN one. What sells
-the hit at contact time carries no positional claim — hit-stop
-(render-only freeze of both bodies, ~80-120ms, the fighting-game
-convention; your own physics keeps stepping and streaming underneath),
-screen shake, impact burst, sfx, a spin/dizzy marker, the score popup
-— fired at the contact frame on the detecting screen and at op
-arrival elsewhere; arriving truth cannot contradict any of it. The
-victim's real flight then lands with the pose stream ~half a second
-later as confirmation, and with SET-velocity physics it is big enough
-to read on arrival. The one sound positional correction is a bounded
-snap to a known point at a known event: on the victim's screen, snap
-the attacker's ghost to just-touching — your current position minus
-the contact normal × the sum of the two radii, moving the rendered
-transform AND the steer target together so the steer doesn't
-rubber-band it (the next pose corrects it) — before playing the
-bounce; the fighting-game hit-snap, measured working 2026-07-18.
-Third screens can reuse it (unmeasured there). The hit-snap and that
-bounce are the only ghost displacements this file carries; whatever
-visual-only displacement a design ever adds, physics — contact
-detection, overlap clamps — has to keep reading the pose-stream
-position, never the displaced render: a displaced render breeds
-phantom contacts that re-trigger and feed back. None of this is
-adjudicable in a mock room: at near-zero RTT every mechanism above
-renders identically; only the live relay separates them (all four
-failures shipped past green two-client gates). Verdicts: banners
-fired from local detection announce ~0.5–1s apart — you know your own
-fall instantly, the opponent learns it a pose later — while announcing
-on the `result` op's arrival lands both screens within a link's
-difference: the client that detects ITS OWN loss sends `result`
-carrying the winner uid, round-stamped, and every screen — sender
-included — latches the first result per round, so the winner field
-agrees by construction; the trade is that the faller waits its own
-echo (~400ms).
+only through the victim's own pose stream, throttled ~100ms and a
+relay RTT behind (~0.5–1s live) — at contact time there is nothing
+true a screen can move the victim's ghost with. Hit feedback that
+carries no positional claim fires at the contact frame on the
+detecting screen and at op arrival elsewhere — arriving truth cannot
+contradict it; the build that had feedback only at op arrival, never
+on the detecting screen, read there as hits doing nothing
+(live-measured). One measured artifact on the victim's screen: the
+knockback lands at op arrival while the attacker's ghost still
+renders at a stale pre-contact pose, so it fires visibly off empty
+air. The fix (measured 2026-07-18): a bounded snap of the
+attacker's ghost to just-touching — the victim's position minus the
+contact normal × the sum of the two radii — moving the rendered
+transform AND the steer target (the latest-pose target) together,
+since steering alone rubber-bands the snap back. Physics keeps
+reading pose-stream positions throughout: contact detection or
+clamps fed from a visually displaced render breed phantom contacts
+that re-trigger and feed back (headless-harness measured,
+2026-07-18). Across four live rounds of alternatives, what survived
+claims no position, or only a KNOWN point at a KNOWN event — like
+that snap. None of this is adjudicable in a mock room: at near-zero
+RTT good and bad latency handling render identically; only the live
+relay separates them — four consecutive builds shipped such
+artifacts straight past green two-client gates.
+
+One settlement fact (two builds carried holes of this family; found
+in code audit, not yet reproduced live): every screen judges its OWN
+body live but every other body through throttle-thinned ghost poses
+~0.5–1s behind — and the decisive pose can be dropped at the sender
+— so a verdict derived from what each screen currently sees can
+settle on different winners in a photo finish. A single op in the
+shared ordered log reads identically everywhere: the client that
+detects ITS OWN loss sends one reliable, round-stamped `result` op
+naming the winner, and every screen — sender included — latches the
+first result per round (rounds count up, never reset — a replayed
+result then cannot claim a fresh round); the faller sees its own
+defeat an op echo later (~400ms).
 
 ## 2. Authoritative rules script (`__SHARKY_RULES__`)
 

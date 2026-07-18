@@ -261,7 +261,7 @@ ${SELECTED_VIEWPORTS.map((vp) => `<h3>${vp.name}</h3><div style="display:flex;ga
   writeFileSync(resolve(outDir, 'report.json'), JSON.stringify(report, null, 2))
 
   console.log(`\nfilmstrip: ${resolve(outDir, 'filmstrip.html')}`)
-  if (!report.pass) console.error('\n❌ PLAYTEST GATE FAILED — inspect the filmstrip before publishing')
+  if (!report.pass) console.error('\n❌ PLAYTEST GATE FAILED — the filmstrip has the failing frames')
   else console.log('\n✅ playtest gate passed (filmstrip written for human eyes)')
   await closeQuiet(browser.close())
   process.exit(report.pass ? 0 : 1)

@@ -43,10 +43,16 @@ window.addEventListener('message', function (ev) {
   state.players[uids[idx] || 'p'] = { name: 'P' + (idx + 1) };
   onAction(ev.data.action || {}, uids[idx] || 'p');
 });
+var clockLast = Date.now();
 setInterval(function () {
   var snapshot = JSON.parse(JSON.stringify(state));
   frames.forEach(function (f) { try { f.contentWindow.postMessage({ ns: 'sharky-local-bus', state: snapshot }, '*'); } catch (e) {} });
-  state.clock += 0.15;
+  // wall-anchored: the real room clock lives on the server and keeps true time
+  // while this tab is hidden — a throttled pump must not crawl it (fixed +0.15
+  // per fire crawled at ~0.15× in background, yanking client clock offsets on return)
+  var now = Date.now(), dt = (now - clockLast) / 1000;
+  state.clock += dt > 0 ? dt : 0.15;
+  clockLast = now;
 }, 150);
 // live instrument-state banner: in a hidden tab the browser freezes rAF and
 // throttles timers (including this 150ms pump) — show it, don't make anyone
