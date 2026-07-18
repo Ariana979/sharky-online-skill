@@ -173,6 +173,15 @@ async function launchBrowser() {
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64')
 const SRC_DECODE = (v: string) => `new TextDecoder().decode(Uint8Array.from(atob("${v}"), c => c.charCodeAt(0)))`
 
+// Teardown deadline: a wedged Chrome close must never hold finished results
+// hostage — no unbounded close ever stands between finished results and the
+// exit: every close below races 10s, all result writes are sync, each mode
+// exits explicitly. Playwright's exit hook SIGKILLs the browser process
+// group, so a timed-out close leaves no orphan (verified 2026-07-17:
+// exit-with-open-browser → zero headless processes).
+const closeQuiet = (closing: Promise<unknown>) =>
+  Promise.race([closing.catch(() => {}), new Promise<void>((r) => setTimeout(r, 10_000))])
+
 const browser = await launchBrowser()
 
 // ================================================================== filmstrip
@@ -240,11 +249,10 @@ if (MODE === 'filmstrip') {
     if (!vpResult.checks.G1_noErrors || !vpResult.checks.G2_repainting || vpResult.checks.G3_focusCentered === false) report.pass = false
     report.viewports.push(vpResult)
     console.log(`[${vp.name}] errors=${errors.length} repaint=${vpResult.repaintTransitions} focus=${withHook.length} centered=${centeredRatio === null ? 'n/a' : (centeredRatio * 100).toFixed(0) + '%'}`)
-    await page.close()
+    await closeQuiet(page.close())
   }
-  await browser.close()
 
-  // contact sheet
+  // contact sheet — written before teardown so a wedged close costs 10s, not the report
   const sheet = `<!DOCTYPE html><html><body style="background:#111;color:#eee;font-family:monospace">
 <h2>playtest filmstrip — ${new Date().toISOString()}</h2>
 ${SELECTED_VIEWPORTS.map((vp) => `<h3>${vp.name}</h3><div style="display:flex;gap:4px;overflow-x:auto">${Array.from({ length: 8 }, (_, i) => `<img src="${vp.name}-${i}.png" style="width:220px">`).join('')}</div>`).join('')}
@@ -253,11 +261,10 @@ ${SELECTED_VIEWPORTS.map((vp) => `<h3>${vp.name}</h3><div style="display:flex;ga
   writeFileSync(resolve(outDir, 'report.json'), JSON.stringify(report, null, 2))
 
   console.log(`\nfilmstrip: ${resolve(outDir, 'filmstrip.html')}`)
-  if (!report.pass) {
-    console.error('\n❌ PLAYTEST GATE FAILED — inspect the filmstrip before publishing')
-    process.exit(1)
-  }
-  console.log('\n✅ playtest gate passed (filmstrip written for human eyes)')
+  if (!report.pass) console.error('\n❌ PLAYTEST GATE FAILED — inspect the filmstrip before publishing')
+  else console.log('\n✅ playtest gate passed (filmstrip written for human eyes)')
+  await closeQuiet(browser.close())
+  process.exit(report.pass ? 0 : 1)
 }
 
 // ================================================================= two-client
@@ -396,7 +403,7 @@ document.getElementById('b').srcdoc = ${SRC_DECODE(htmlB)};
       </div></body>`)
     const pairShot = await pairPage.screenshot()
     writeFileSync(resolve(outDir, 'host-frozen-pair.png'), pairShot as Buffer)
-    await pairPage.close()
+    await closeQuiet(pairPage.close())
   } catch (e) {}
 
   const guestFreezeDelta = pixelDelta(gFrozen1 as Buffer, gFrozen2 as Buffer)
@@ -412,9 +419,10 @@ document.getElementById('b').srcdoc = ${SRC_DECODE(htmlB)};
   console.log(`[two-client] boot=${checks.T1_bothBoot} players=${a?.players}/${b?.players} kvCross=${checks.T3_kvCross} errors=${errors.length}${checks.W_repaint ? '' : ' (warn: low repaint — static screen?)'}${checks.W_guestLiveDuringHostFreeze ? '' : ' (warn: guest pane static during host-freeze — host-rAF-wired world? or static scene)'}`)
   console.log(`[two-client] mid-play frame (human eyes): ${resolve(outDir, 'two-client-playing.png')}`)
   console.log(`[two-client] host-frozen pair (${HOST_FROZEN_MS}ms apart, one look: does the guest countdown advance?): ${resolve(outDir, 'host-frozen-pair.png')}`)
-  await browser.close()
-  if (!pass) { console.error('\n❌ TWO-CLIENT SEAM CHECK FAILED — see report.json'); process.exit(1) }
-  console.log('✅ two-client seam check passed')
+  if (!pass) console.error('\n❌ TWO-CLIENT SEAM CHECK FAILED — see report.json')
+  else console.log('✅ two-client seam check passed')
+  await closeQuiet(browser.close())
+  process.exit(pass ? 0 : 1)
   } catch (e: any) {
     // Fail closed: stamp a terminal verdict so a poller never hangs on
     // phase:"running"/"seam"; artifacts are incomplete, so the run counts
@@ -423,7 +431,7 @@ document.getElementById('b').srcdoc = ${SRC_DECODE(htmlB)};
       writeFileSync(verdictPath, JSON.stringify({ phase: 'final', seamPass: false, aborted: true, error: String(e?.message ?? e).slice(0, 300), errorsSoFar: errors.length, at: new Date().toISOString() }, null, 2))
     } catch { /* disk gone — stdout still tells the story */ }
     console.error(`\n❌ TWO-CLIENT artifact phase crashed after seam ${seamPass ? 'PASS' : 'FAIL'} — run counts as failed: ${String(e?.message ?? e).slice(0, 200)}`)
-    try { await browser.close() } catch { /* already gone */ }
+    await closeQuiet(browser.close())
     process.exit(1)
   }
 }
@@ -461,7 +469,8 @@ if (MODE === 'smoke') {
   const report = { mode: MODE, html: htmlPath, errors, repaintTransitions: `${liveTransitions}/${shots.length - 1}`, checks, pass: checks.G1_noErrors }
   writeFileSync(resolve(outDir, 'report.json'), JSON.stringify(report, null, 2))
   console.log(`[smoke] errors=${errors.length} repaint=${liveTransitions}/${shots.length - 1}${checks.W_repaint ? '' : ' (warn: no repaint observed — static screen?)'}${focus ? ` focus=${JSON.stringify(focus)}` : ''}`)
-  await browser.close()
-  if (!report.pass) { console.error('\n❌ SMOKE FAILED — page errors on the final build; see report.json'); process.exit(1) }
-  console.log('✅ smoke passed (final build renders with zero page errors)')
+  if (!report.pass) console.error('\n❌ SMOKE FAILED — page errors on the final build; see report.json')
+  else console.log('✅ smoke passed (final build renders with zero page errors)')
+  await closeQuiet(browser.close())
+  process.exit(report.pass ? 0 : 1)
 }

@@ -36,12 +36,27 @@ entity style, interpolation feel, and all visuals remain entirely yours.
    `__ENV_HEALTH__.rafHz` reads 0 and the parent `snapshot()` reports
    `visible:false` — a ghost that stops moving under those readings is the
    tab, not the bus (measured: the misread costs minutes of forensics on a
-   healthy build; the one-probe read costs seconds).
+   healthy build; the one-probe read costs seconds). The freeze also stops
+   YOUR OWN physics when it lives in the render loop: network events still
+   fire while hidden, so received impulses accumulate without integrating —
+   to everyone else you are a statue that cannot be knocked out, which then
+   replays the backlog on return (live-play measured 2026-07-17). A coarse
+   timer step decays with the cadence itself (~1/min when the backgrounding
+   is prolonged, per above), so the arm that survives is a catch-up
+   integration on `visibilitychange` with the big dt clamped — the timer
+   step only softens short hides.
 4. **Ghost lifecycle**: map `uid → entity`; create on first op, steer toward
    the latest pose each frame — but SNAP when the target is far (a page
    unfrozen after backgrounding drains its buffered updates in a burst;
    without a snap threshold the ghost visibly replays the missed trajectory
-   instead of standing at the live position). EXISTENCE comes from the
+   instead of standing at the live position). Dead-reckoning by the pose's
+   velocity needs the mirror guard: a hidden sender keeps broadcasting a
+   frozen pose (+stale velocity) at timer cadence — unclamped extrapolation
+   slides the ghost out and yanks it back once a second (rubber-banding,
+   live-play measured 2026-07-17). Clamp the extrapolation age, and freeze
+   it entirely when the sender's cadence collapses — that catches a
+   heartbeating hidden page; the ~10s full-silence idle mark below catches
+   the rest. EXISTENCE comes from the
    server roster, not stream cadence: `net.players()` drops real leavers
    (relay grace ~5s) while an idle/backgrounded player stays listed — render
    them STANDING at the last pose (mark idle after ~10s of silence); dispose
@@ -66,7 +81,10 @@ entity style, interpolation feel, and all visuals remain entirely yours.
    backgrounded page stops simulating, so its broadcast absolute coords go
    stale — receivers re-base the offset onto their own shared-clock mover
    and the rider stays glued to it on every screen regardless of the
-   sender's cadence.
+   sender's cadence. The mock rigs carry the same clock: dev-serve and
+   the playtest shim tick `state.clock` +0.15s every 150ms (~1× wall
+   speed; the real sim steps in whole seconds). There is no built-in
+   room-clock helper — games read it off `'update'`.
 7. **Identity display**: player names live in `net.players()[uid].name`
    (platform nicknames; they arrive/update via the `'players'` event —
    re-label ghosts when it fires). `op.__tag` / `net.tag` is a transport
@@ -74,6 +92,13 @@ entity style, interpolation feel, and all visuals remain entirely yours.
    identities, so a wrong name source is INVISIBLE offline: check names in
    the real room (room-test asserts delivery, not display — a session
    shipped transport tags as player names and no apparatus caught it).
+   Names are also racy and presence-scoped (live-play measured
+   2026-07-17): a peer's first pose can beat the roster entry carrying
+   their nickname, and `players()` drops a client when they leave — so a
+   canvas-texture label keeps whatever the lookup returned at draw time
+   (raw-uid fragments read as garbage) and needs an explicit redraw on
+   `'players'`; anything that outlives presence (scoreboards, tallies)
+   needs a uid → name cache.
 8. **Deadlines & the two clocks**: `state.clock` (fact 6) advances on the
    server and freezes for no page; rAF/`performance.now()` are
    page-lifecycle clocks. A hidden page freezes rAF to 0Hz while its timers
@@ -257,6 +282,80 @@ for (const uid in ghosts) {                        // per frame, per ghost — a
 // each client clamps ITSELF only — symmetric on every peer, zero authority conflict
 // bonus: slipstream = speed boost when closely trailing a ghost's heading
 ```
+
+Clamping stops interpenetration — it moves only YOU. No momentum crosses
+to the other body: the clamp kills your own inward velocity, and pose
+replication never carries your push, so a "shove" built from clamps
+alone never lands. When the design needs your push to MOVE the other
+player (sumo shoves, tackles, bumps that score), the impulse crosses the
+wire as an op: the sender detects the contact and sends the impulse, the
+receiver applies it to its own body — ownership stays local, still
+nobody arbitrates positions. A reliable op — gated like any one-shot
+effect (`meta.replayed`, so rejoin replay doesn't re-shove), round-stamped,
+rate-limited per victim — covered it in ~15 lines (measured 2026-07-17,
+sumo arena build).
+
+Two pipeline consequences (four live rounds, 2026-07-17/18). First,
+physics: an ADDED impulse is eaten by the victim's own momentum — in
+a mutual ram, (impulse − closing speed)/friction can be near zero, so
+the knockback barely exists and no screen can show what isn't there.
+A knockback that must read has to SET velocity: at op arrival on the
+victim, v' = v − (v·n̂)n̂ + |J|n̂ — kill the component along the
+impulse, keep the perpendicular, then apply (the arcade convention);
+real displacement becomes impulse/friction regardless of approach.
+Second, visibility: every other screen sees the shove MOVE the victim
+only through the victim's pose stream, throttled ~100ms and a relay
+RTT behind (~0.5–1s live) — at contact time there is nothing true a
+screen can move the victim's ghost with. Local echo of YOUR OWN body
+is always sound (you own that physics); "echoing" someone else's body
+is prediction of an un-owned body, and all four mechanisms that tried
+it failed live. That ladder closes at the category, not at a rung —
+every patch to a rung IS the next rung, each needing one more piece
+of the victim's world: an op-handler echo (round-trip late; running
+it ungated on the detecting screen instead is the same unfounded
+claim — the ghost has no true post-hit state to show, the `meta.self`
+gate placement was never the flaw); displacing the drawn entity
+(steered back to the stale pose in ~100ms); displacing the steer
+target (in-flight pre-contact poses replace it — "bounces back, then
+flies"; filtering those poses needs clocks and RTT, the next rung); a
+truth-sized decaying offset with pose-stream pay-down (needed the
+victim's velocity, the link's RTT, their post-hit friction — and
+still overshot through arena walls it knew nothing about, far past
+where the victim really stopped; the piece after that would have been
+their live input). The mechanisms that survived all four rounds share
+one property: they claim no position, or only a KNOWN one. What sells
+the hit at contact time carries no positional claim — hit-stop
+(render-only freeze of both bodies, ~80-120ms, the fighting-game
+convention; your own physics keeps stepping and streaming underneath),
+screen shake, impact burst, sfx, a spin/dizzy marker, the score popup
+— fired at the contact frame on the detecting screen and at op
+arrival elsewhere; arriving truth cannot contradict any of it. The
+victim's real flight then lands with the pose stream ~half a second
+later as confirmation, and with SET-velocity physics it is big enough
+to read on arrival. The one sound positional correction is a bounded
+snap to a known point at a known event: on the victim's screen, snap
+the attacker's ghost to just-touching — your current position minus
+the contact normal × the sum of the two radii, moving the rendered
+transform AND the steer target together so the steer doesn't
+rubber-band it (the next pose corrects it) — before playing the
+bounce; the fighting-game hit-snap, measured working 2026-07-18.
+Third screens can reuse it (unmeasured there). The hit-snap and that
+bounce are the only ghost displacements this file carries; whatever
+visual-only displacement a design ever adds, physics — contact
+detection, overlap clamps — has to keep reading the pose-stream
+position, never the displaced render: a displaced render breeds
+phantom contacts that re-trigger and feed back. None of this is
+adjudicable in a mock room: at near-zero RTT every mechanism above
+renders identically; only the live relay separates them (all four
+failures shipped past green two-client gates). Verdicts: banners
+fired from local detection announce ~0.5–1s apart — you know your own
+fall instantly, the opponent learns it a pose later — while announcing
+on the `result` op's arrival lands both screens within a link's
+difference: the client that detects ITS OWN loss sends `result`
+carrying the winner uid, round-stamped, and every screen — sender
+included — latches the first result per round, so the winner field
+agrees by construction; the trade is that the faller waits its own
+echo (~400ms).
 
 ## 2. Authoritative rules script (`__SHARKY_RULES__`)
 
