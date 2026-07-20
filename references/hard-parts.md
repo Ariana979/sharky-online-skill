@@ -24,7 +24,21 @@ entity style, interpolation feel, and all visuals remain entirely yours.
    only clock rates matter) marks that backlog, so skipping stale stream ops
    lands the ghost at the LIVE position instead of replaying the missed
    trajectory. (Raw `Date.now() - op.__t` was the old cross-device trap:
-   device clocks skew by seconds.)
+   device clocks skew by seconds.) And the log is a transport WINDOW,
+   not an archive: it holds ~96 ops, so a 10Hz pose stream evicts a
+   discrete event in seconds — a joiner past the window replays 96
+   poses and zero of the events that built the current phase (measured
+   twice: a story retrofit lost every beat; live 2026-07-20 a late
+   joiner missed the round-start op and sat locked out until the next
+   transition, a wait that spans the rest of the round). Phase state a
+   latecomer cannot play without — round number, the live deadline,
+   the round's seeded roster (presence stays fact 4's
+   `net.players()`) — is therefore ALSO mirrored to shared KV
+   (`net.setShared`) at each transition: a joiner reconciles from KV,
+   and the log replay only back-fills the recent tail. The mirror
+   guards against window EVICTION, not room rebirth: KV lives exactly
+   as long as the sim room and a rewarm starts empty (log included),
+   so connected clients re-mint state at the next transition.
 3. **Throttle drops**: `send()` drops when over budget — coalesce streams
    (latest pose, not every frame); discrete must-arrive ops (finish, score,
    world event) go through `net.sendReliable()` instead. Host the stream on
@@ -81,9 +95,10 @@ entity style, interpolation feel, and all visuals remain entirely yours.
    backgrounded page stops simulating, so its broadcast absolute coords go
    stale — receivers re-base the offset onto their own shared-clock mover
    and the rider stays glued to it on every screen regardless of the
-   sender's cadence. The mock rigs carry the same clock: dev-serve and
-   the playtest shim tick `state.clock` +0.15s every 150ms (~1× wall
-   speed; the real sim steps in whole seconds). There is no built-in
+   sender's cadence. The mock rigs carry the same clock: dev-serve
+   advances `state.clock` by wall-clock elapsed; the playtest shim
+   ticks +0.15s every 150ms (the real sim steps in whole seconds).
+   There is no built-in
    room-clock helper — games read it off `'update'`.
 7. **Identity display**: player names live in `net.players()[uid].name`
    (platform nicknames; they arrive/update via the `'players'` event —
@@ -108,7 +123,23 @@ entity style, interpolation feel, and all visuals remain entirely yours.
    countdown in the room stood still; a progress counter inside the stream
    is the observable that tells the two apart). A room-wide deadline written
    as an absolute shared-clock time T is recomputable on any client at any
-   moment; written in page-clock terms it dies with its page.
+   moment; written in page-clock terms it dies with its page. One edge
+   on "recomputable": the shared-clock anchor is not monotonic — it
+   re-bases BACKWARD when the sim room is reborn (fact 6's rewarm
+   branch; idle rooms are recycled, so long sessions cross clock
+   domains), stranding a T minted before the re-base in the dead
+   domain's future. A readout re-derived per frame shows the yank and
+   heals once the next T lands (it holds no stuck state); a one-shot
+   transition gated by a live `now >= T` check un-fires — GO re-locks
+   input mid-round, a timecap freezes, the room deadlocks
+   (production-measured 2026-07-20; none of five audited
+   builds latched by design) — and elapsed-time-derived quantities
+   (a shrinking arena) run backward. What survives: a transition
+   LATCHES the first time it fires (state, not a re-check), elapsed
+   time keeps a monotonic high-water mark, and a T arriving via replay
+   gets a domain check — a past T lands latecomers on the
+   already-advanced world, trusted verbatim; a far-future one is
+   re-derived locally (a stranded T otherwise locks every joiner).
    Driver-private decisions are fine (what happens is game rules) — once
    published as a reliable event with params/seed/deadline, execution no
    longer depends on the publisher's page: seed/param-derivable content

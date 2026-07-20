@@ -19,7 +19,9 @@ rejects violations of it at build time.
 
 ## Architecture (30 seconds)
 
-The published page carries three injected pieces next to the user's game:
+The published page carries four injected pieces next to the user's game:
+a **host-shell focus rescue** (reclaims keyboard focus for the game iframe
+— the platform shell can otherwise hold it until a click inside the game),
 `bridge.js` (identity/room/relay), an **inert shim game config** (the
 platform's server-side sim extracts it from the page HTML and runs it as the
 room authority — it is a generic ordered-op bus, no gameplay), and

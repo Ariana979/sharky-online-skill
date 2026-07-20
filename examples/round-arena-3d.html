@@ -199,8 +199,10 @@
     // World events are the opposite of streams on BOTH counts: the sender
     // applies its own event from the bus too (skipping self here would
     // leave the clicker in a private round everyone else never enters), and
-    // replayed 'round' ops are CONSUMED, not skipped — that is exactly how
-    // a latecomer catches up. The n > round guard keeps it idempotent.
+    // replayed 'round' ops are CONSUMED, not skipped — that is how a
+    // latecomer catches up within the ~96-op log window (the KV mirror
+    // below covers a joiner past it — §0 fact 2). The n > round guard
+    // keeps every path idempotent.
     if (op.k === 'round' && op.n > round) applyRound(op.n);
   });
 
@@ -221,7 +223,10 @@
     showBanner('ROUND ' + n);
   }
   roundBtn.addEventListener('click', () => {
-    if (net.isHost() && roundOver) net.sendReliable({ k: 'round', n: round + 1 }); // §0 fact 3 must-arrive
+    if (net.isHost() && roundOver) {
+      net.sendReliable({ k: 'round', n: round + 1 });  // the LIVE event — must-arrive, ordered (§0 fact 3)
+      net.setShared('round', round + 1);               // the DURABLE copy — outlives the ~96-op
+    }                                                  // window for late joiners (§0 fact 2)
   });
 
   /* ——— taste: the round-END rule (last one standing) is the game's own —
@@ -261,6 +266,10 @@
      lobby, so nobody depends on their own click landing. */
   startBtn.addEventListener('click', () => { if (net.isHost()) net.start(); });
   net.on('phase', p => { if (p === 'playing' && round === 0) applyRound(1); });
+  // §0 fact 2: a joiner past the ~96-op log window rebuilds the round from
+  // the KV mirror; op, phase and KV paths converge via the n > round guard.
+  const kvRound = () => { const n = net.shared().round; if (typeof n === 'number' && n > round) applyRound(n); };
+  net.on('update', kvRound); kvRound();
 
   /* ——— seam: degrade contract (hard-parts §0) — surface link quality so a
      network stall never reads as "the game broke". ——— */

@@ -4,9 +4,10 @@
 //       --min-players 2 --max-players 8 --out dist/index.html
 //
 // Injects, right after <body> (or before the first <script> if no <body>):
-//   1. bridge.js          — platform identity/room/relay transport
-//   2. shim game config   — inert here; executed by the server-side sim
-//   3. sharky-net.js      — the ordered-op bus API the game code uses
+//   1. focus rescue       — reclaims host-shell keyboard focus (browser only)
+//   2. bridge.js          — platform identity/room/relay transport
+//   3. shim game config   — inert here; executed by the server-side sim
+//   4. sharky-net.js      — the ordered-op bus API the game code uses
 //
 // The game HTML stays fully free-form. Its only obligations:
 //   await SharkyNet.ready(); use SharkyNet.send/on/setShared for ALL shared
@@ -51,7 +52,22 @@ const htmlWithVendors = html.replace(/\/\*__VENDOR:([A-Za-z0-9.\-]+)__\*\//g, (_
   return body
 })
 
-const runtime = `<script>/* sharky-online runtime: bridge */\n${bridge}\n</script>\n` +
+// Host-shell focus rescue: the platform game page can load with keyboard
+// focus outside the game iframe, and a guest may have no in-game button
+// whose click would transfer it (live-measured 2026-07-20: guest keyboard
+// 0/5 before, 3/3 with boot rescue). window.focus() targets the WINDOW — it
+// never steals focus from elements inside the game. No-ops in the
+// headless sim (bare document, no addEventListener).
+const focusRescue = `(() => {
+  if (typeof window === 'undefined' || typeof document === 'undefined' || !document.addEventListener) return;
+  const grab = () => { try { window.focus(); } catch (e) {} };
+  grab();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') grab(); });
+  document.addEventListener('pointerdown', grab, true);
+})();`
+
+const runtime = `<script>/* sharky-online runtime: host-shell focus rescue */\n${focusRescue}\n</script>\n` +
+  `<script>/* sharky-online runtime: bridge */\n${bridge}\n</script>\n` +
   `<script>/* sharky-online runtime: sim shim (inert in browser) */\n${shim}\n</script>\n` +
   `<script>/* sharky-online runtime: net API */\n${net}\n</script>\n`
 
@@ -135,9 +151,10 @@ console.log(`[build] ${outPath} (${out.length} bytes) — game ${gamePath} + sha
 console.log(`[build] sim gate: ${gate.detail}`)
 
 // --- skill self-update notice (fact-only; never updates anything) ---
-// Fires only when this skill directory is a git clone of the distribution
-// repo (origin URL contains "sharky-online-skill"); lab snapshots and
-// web-vendored copies have no .git and skip silently. Checked at most once
+// Fires when this skill directory is a git clone of the distribution repo
+// (origin URL contains "sharky-online-skill"), or a git-less copy (ZIP /
+// vendored) carrying the repo's .release stamp; lab snapshots have neither
+// and skip silently. Checked at most once
 // per 24h (stamp beside the publish session file), 1.5s network timeout,
 // silent on any failure. Updating stays the USER's decision — the notice
 // only names the command to run after they approve.

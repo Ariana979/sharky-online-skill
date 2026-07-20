@@ -96,7 +96,8 @@ shared KV — one key per beat (`sn_<id>`, value = journey generation, so
 keys never accumulate across restarts); a late joiner rebuilds by walking
 the registry in authored order against the KV, and the log replay only
 back-fills the recent tail. Round-reset games self-heal without this (each
-round rebuilds the world); persistent-progression stories do not.
+round rebuilds the world — though phase state still takes §0 fact 2's KV
+mirror); persistent-progression stories do not.
 Catch-up splits in two: STATE applies immediately and silently — subtitles
 skipped, the callbacks embedded in dialogue lines still execute, so doors
 open and flags set; the missed pure-dialogue lines are presentation-layer
