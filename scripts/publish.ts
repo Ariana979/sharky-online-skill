@@ -342,7 +342,7 @@ async function ensureSession(): Promise<Session> {
   return otpLogin()
 }
 
-async function callImport(accessToken: string): Promise<{ status: number; json: any }> {
+async function callImport(accessToken: string, retried = false): Promise<{ status: number; json: any }> {
   console.log(`[import] uploading ${(Buffer.byteLength(html, 'utf8') / 1024).toFixed(0)} KB to the platform…`)
   let resp: Response
   try {
@@ -365,8 +365,14 @@ async function callImport(accessToken: string): Promise<{ status: number; json: 
   let json: any = {}
   try { json = JSON.parse(raw) } catch {}
   // A failing status with a non-JSON body is a gateway/proxy answering, not
-  // the platform (the endpoint always speaks JSON) — say so.
+  // the platform (the endpoint always speaks JSON) — say so. A non-JSON 5xx
+  // is transient: retry once — same exposure as rerunning the command.
   if (resp.status !== 200 && !json?.error) {
+    if (resp.status >= 500 && !retried) {
+      console.warn(`[import] transient ${resp.status} from the gateway — retrying once…`)
+      await new Promise((r) => setTimeout(r, 2000))
+      return callImport(accessToken, true)
+    }
     throw new Error(networkGuidance(`[network] import endpoint answered ${resp.status} with a non-JSON body`))
   }
   if (resp.status === 200) {

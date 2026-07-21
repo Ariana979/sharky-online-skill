@@ -45,12 +45,17 @@ if (/new\s+WebSocket\s*\(/.test(html)) throw new Error('game HTML must not open 
 
 // Vendor inlining: `/*__VENDOR:<name>__*/` inside a <script> is replaced with
 // assets/vendor/<name>.js — keeps games fully self-contained (no CDN).
-const htmlWithVendors = html.replace(/\/\*__VENDOR:([A-Za-z0-9.\-]+)__\*\//g, (_, name: string) => {
+const htmlWithVendors = html.replace(/\/\*__VENDOR:([A-Za-z0-9._\-]+)__\*\//g, (_, name: string) => {
   const p = resolve(skillRoot, 'assets/vendor', `${name}.js`)
   const body = readFileSync(p, 'utf8')
   console.log(`[build] inlined vendor ${name} (${body.length} bytes)`)
   return body
 })
+// A placeholder left unexpanded (name chars outside [A-Za-z0-9._-]) would
+// ship as a dead comment and only surface as a runtime ReferenceError.
+if (/\/\*__VENDOR:/.test(htmlWithVendors)) {
+  throw new Error('unexpanded /*__VENDOR:<name>__*/ placeholder — vendor names take [A-Za-z0-9._-]')
+}
 
 // Host-shell focus rescue: the platform game page can load with keyboard
 // focus outside the game iframe, and a guest may have no in-game button
@@ -86,7 +91,7 @@ if (/<body[^>]*>/i.test(htmlWithVendors)) {
 // sim-like globals (per-script errors ignored, like the sim does), then
 // require window.__DELTA_GAME_CONFIG__ to exist. Catches unreplaced
 // placeholders, scripts that clobber the config, and </script> splits.
-async function simGate(html: string): Promise<{ ok: boolean; detail: string }> {
+async function simGate(html: string, authoredHtml: string): Promise<{ ok: boolean; detail: string }> {
   if (/__(TITLE|MIN_PLAYERS|MAX_PLAYERS)__/.test(html)) {
     return { ok: false, detail: 'unreplaced template placeholder in output' }
   }
@@ -128,17 +133,24 @@ async function simGate(html: string): Promise<{ ok: boolean; detail: string }> {
     process.off('unhandledRejection', onRejection)
   }
   if (rejections.length > 0) {
-    return { ok: false, detail: `game scripts leaked ${rejections.length} unhandled rejection(s) in the sim sandbox (first: ${String(rejections[0]).slice(0, 80)}) — guard scripts with "if (typeof SharkyNet === 'undefined') return"` }
+    return { ok: false, detail: `game scripts leaked ${rejections.length} unhandled rejection(s) in the sim sandbox (first: ${String(rejections[0]).slice(0, 80)}) — wrap game scripts in an async IIFE that returns early when typeof SharkyNet === 'undefined'` }
   }
   const cfg = (globals.window as any)?.__DELTA_GAME_CONFIG__ || (globals as any).__DELTA_GAME_CONFIG__
   if (!cfg || typeof cfg !== 'object') return { ok: false, detail: '__DELTA_GAME_CONFIG__ not set after vm execution' }
   for (const cb of ['initState', 'onAction', 'render', 'customActions']) {
     if (typeof cfg[cb] !== 'function') return { ok: false, detail: `config.${cb} missing after vm execution` }
   }
+  // Rules-script tripwire: a __SHARKY_RULES__ assignment in the authored
+  // game that never ran here means the script carries the SharkyNet guard —
+  // in production the sim would then run WITHOUT arbitration while browsers
+  // still run the rules, a silent live-only divergence (hard-parts §2).
+  if (/(?:window\s*\.\s*)?__SHARKY_RULES__\s*=(?!=)/.test(authoredHtml) && !(globals.window as any)?.__SHARKY_RULES__) {
+    return { ok: false, detail: 'a __SHARKY_RULES__ script is present but never assigned in the sim sandbox — usually a SharkyNet guard (rules scripts must run unguarded in the sim; hard-parts §2); otherwise it threw before assigning, or assigned without the window. prefix' }
+  }
   return { ok: true, detail: `config ok (minPlayers=${cfg.minPlayers}, maxPlayers=${cfg.maxPlayers})` }
 }
 
-const gate = await simGate(out)
+const gate = await simGate(out, html)
 if (!gate.ok) {
   console.error(`[build] SIM GATE FAILED: ${gate.detail}`)
   process.exit(1)

@@ -74,10 +74,11 @@ entity style, interpolation feel, and all visuals remain entirely yours.
    server roster, not stream cadence: `net.players()` drops real leavers
    (relay grace ~5s) while an idle/backgrounded player stays listed — render
    them STANDING at the last pose (mark idle after ~10s of silence); dispose
-   shortly after they leave the roster, plus a long-silence backstop for
-   mock rooms (their roster is sticky). Background pages get timers
-   throttled to as little as 1/min — vanishing on silence turns every afk
-   player into a "bug report".
+   shortly after they leave the roster, plus a long-silence backstop
+   (~150s; mock rosters are sticky). Background pages get timers
+   throttled to as little as 1/min — the backstop sits above that
+   heartbeat, and vanishing on silence turns every afk player into a
+   "bug report".
 5. **Lobby legibility**: show the connected count; when solo, say friends
    join via the Invite link (gotcha 15b — a fresh room otherwise reads as
    "multiplayer is broken").
@@ -167,7 +168,7 @@ function stepGhosts(dt) {                                     // 4: per frame
     const here = !!net.players()[uid];     // 4: existence = server roster
     g.entity.visible = here;               //    (afk ≠ gone; silence only stales motion)
     const silent = performance.now() - g.lastSeen;
-    if ((!here && silent > 5000) || silent > 60000) { disposeEntity(g.entity); delete ghosts[uid]; }
+    if ((!here && silent > 5000) || silent > 150000) { disposeEntity(g.entity); delete ghosts[uid]; }
   }
 }
 setInterval(() => net.send({ k: 'pose', ...latestPose }), 90); // 3: timer-hosted lossy stream
@@ -370,12 +371,16 @@ detects ITS OWN loss sends one reliable, round-stamped `result` op
 naming the winner, and every screen — sender included — latches the
 first result per round (rounds count up, never reset — a replayed
 result then cannot claim a fresh round); the faller sees its own
-defeat an op echo later (~400ms).
+defeat an op echo later (~400ms). This op buys AGREEMENT; when the
+contest is fairness between near-simultaneous claimants (who acted
+first under mixed latency), that arbitration lives in §2's rules
+script.
 
 ## 2. Authoritative rules script (`__SHARKY_RULES__`)
 
 For outcomes that MUST be fair — first-come pickups, photo finishes,
-scoring — ship a **pure-logic rules script** on the page:
+scoring — ship a **pure-logic rules script** on the page (§1's result
+op buys agreement; this buys the RIGHT winner under mixed latency):
 
 ```html
 <script>
@@ -386,10 +391,12 @@ window.__SHARKY_RULES__ = {
   onTick(game, dt) { game.ms += dt * 1000; /* respawns, timers */ },
   onOp(game, op, uid) {
     // Fair first-claim under mixed latencies: raw bus order hands every
-    // contested pickup to the lowest-RTT player. Arbitrate on CLAMPED
-    // sender time instead — a later-ARRIVING claim may still win if it was
-    // SENT earlier, within an 800ms decision window (≈p95 RTT; also the
-    // ceiling on what a backdated timestamp could steal).
+    // contested pickup to the lowest-RTT player. Arbitrate on sender time
+    // instead — a later-ARRIVING claim may still win if it was SENT
+    // earlier, within an 800ms decision window (≈p95 RTT). __t is the
+    // sender's wall clock and nothing here can clamp it (onOp gets no
+    // arrival time): the window caps WHICH contests a skewed or backdated
+    // clock can steal — photo finishes only — not WHO wins inside them.
     if (op.k !== 'claim') return;
     const t = Number(op.__t) || 0;              // sharky-net stamps __t on send
     const cur = game.pickups[op.id];
@@ -418,8 +425,9 @@ window.__SHARKY_RULES__ = {
 - Hygiene: the script must NOT carry the `typeof SharkyNet` guard (it must
   run in the sim), must not touch DOM/timers, keep state JSON-serializable
   and small (it rides every state_update).
-- In mock rooms (dev-serve / gate) sharky-net runs the rules locally in bus
-  order, so `net.game()` behaves identically offline.
+- In mock rooms (dev-serve / gate) sharky-net runs the rules locally —
+  ops in bus order, `onTick` on the mock state cadence — so `net.game()`
+  behaves the same offline (timing frame-coarse, ~150ms).
 
 ## 2.5 Visual affordance: solid-looking props must act solid
 

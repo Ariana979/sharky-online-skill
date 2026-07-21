@@ -68,12 +68,18 @@
     setTimeout(() => r.remove(), 800);
   }
 
-  // Local echo (zero-latency) + bus broadcast (authoritative ordering).
+  // Local echo (zero-latency) every move; the wire gets the LATEST pos on
+  // a timer — contract #3: coalesce, never send every mousemove (throttle
+  // drops are silent, and the dropped one can be the pointer's resting
+  // spot — the remote cursor then parks off-target).
+  let pendingPos = null;
   arena.addEventListener('mousemove', e => {
-    const x = e.clientX / innerWidth, y = e.clientY / innerHeight;
-    drawCursor(net.me().id, x, y);
-    net.send({ k: 'pos', x, y });          // net throttles to a safe rate itself
+    pendingPos = { x: e.clientX / innerWidth, y: e.clientY / innerHeight };
+    drawCursor(net.me().id, pendingPos.x, pendingPos.y);
   });
+  setInterval(() => {
+    if (pendingPos && net.send({ k: 'pos', x: pendingPos.x, y: pendingPos.y })) pendingPos = null;
+  }, 90);           // keep pendingPos on a throttled send — retry next tick, latest wins
   arena.addEventListener('click', e => {
     const x = e.clientX / innerWidth, y = e.clientY / innerHeight;
     ripple(x, y);
@@ -102,7 +108,7 @@
     startBtn.style.display = (net.isHost() && net.phase() === 'lobby') ? 'block' : 'none';
     const s = net.stats();
     hud.innerHTML = `<b>Cursor Arena</b> · ${net.me().id.slice(0, 8)} ${net.isHost() ? '(host)' : ''} · phase ${net.phase()}<br>` +
-      `sent ${s.sent} · applied ${s.applied} · rtt ${s.lastRttMs}ms · updates ${s.stateUpdates}`;
+      `sent ${s.sent} · applied ${s.applied} · rtt ${net.quality().rttMs}ms · updates ${s.stateUpdates}`;
   }
   renderHud();
 })();

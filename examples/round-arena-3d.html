@@ -160,7 +160,8 @@
     }
 
     // Fell off the platform → "out" for the rest of the round (taste rule;
-    // the seam-relevant part is what stays on the wire — see streamPose).
+    // the seam-relevant part is what stays on the wire — see the
+    // pose-stream seam below).
     if (!me.out && net.phase() === 'playing' && Math.hypot(me.x, me.z) > ARENA_R) {
       me.out = true; showBanner('OUT — wait for the next round');
     }
@@ -172,15 +173,17 @@
 
   /* ——— seam: pose stream (§0 fact 1/§0 fact 3 + death visibility) ———
      Send the LATEST pose on a ~11/s cadence (coalesce — never every frame:
-     the ≤15/s budget is shared with the sendReliable drain, and a saturated
-     stream starves queued must-arrive ops). Streams stay lossy — never
+     queued reliable ops preempt the next send slot, so a saturated
+     stream starves ITSELF into silent drops). Streams stay lossy — never
      sendReliable a stream. Keep streaming while out/waiting too: a client
-     that goes silent is pruned as departed on everyone else's screen, so
-     "death" would read as "player vanished". State rides inside the pose.
+     that stops streaming reads as idle and eventually hits the
+     long-silence backstop, so "death" would read as "player vanished".
+     State rides inside the pose.
      Hosted on a TIMER, not the render loop: browsers freeze rAF to 0Hz in
-     hidden/occluded pages but only throttle timers to ~1/s — a covered
-     window keeps a heartbeat going instead of vanishing on every other
-     screen (single-person two-window testing hits this constantly). */
+     hidden/occluded pages but only throttle timers (~1/s at first, down to
+     ~1/min under prolonged backgrounding) — a covered window keeps a
+     heartbeat going instead of vanishing on every other screen
+     (single-person two-window testing hits this constantly). */
   setInterval(() => {
     net.send({ k: 'pose', x: me.x, z: me.z, y: me.y, out: me.out });
   }, 90);
@@ -232,10 +235,11 @@
   /* ——— taste: the round-END rule (last one standing) is the game's own —
      swap this predicate for your genre (first-to-finish, score target,
      timer…); detecting it is local presentation, and that is fine for
-     casual rules. A CONTESTED outcome (photo finish, first-claim) is
-     different: it belongs in __SHARKY_RULES__ server arbitration —
-     references/hard-parts.md §2. The room-synchronized part here is the
-     restart above. ——— */
+     casual rules. When the verdict must not diverge in a photo finish,
+     §1's round-stamped result op buys agreement; fairness between
+     near-simultaneous claimants belongs in __SHARKY_RULES__ server
+     arbitration — references/hard-parts.md §1-§2. The room-synchronized
+     part here is the restart above. ——— */
   function aliveStats() {
     let total = 1, alive = me.out ? 0 : 1;
     let aliveName = me.out ? null : nameOf(net.me().id) + ' (you)';
@@ -310,7 +314,7 @@
 
   /* ——— taste: ghost motion feel (the §0 fact 4 lifecycle around it is seam) ——— */
   const GHOST_IDLE_MS = 10000;    // silent but connected: mark idle (💤)
-  const GHOST_DISPOSE_MS = 60000; // long-silence backstop (mock rosters are sticky)
+  const GHOST_DISPOSE_MS = 150000; // long-silence backstop, above the ~1/min throttled heartbeat (§0 fact 4)
   function stepGhosts(dt) {
     const now = performance.now();
     for (const uid in ghosts) {
@@ -386,7 +390,7 @@
     const s = aliveStats();
     const q = net.quality();
     hud.textContent = 'round ' + round + ' · ' + s.total + ' here · '
-      + s.alive + ' in · rtt ' + net.stats().lastRttMs + 'ms'
+      + s.alive + ' in · rtt ' + q.rttMs + 'ms'
       + (q.tier !== 'good' ? ' · ⚠ ' + q.tier : '');
   }
 

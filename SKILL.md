@@ -41,18 +41,23 @@ the sim and broadcast back in state updates: ordered, loss-free,
 4. Multiplayer feel: echo the player's own input locally at once; apply
    everyone's ops in bus order (see examples/cursor-arena.html).
 5. **Sim hygiene**: the platform sim vm-executes every inline script of the
-   page headlessly. Start each game script with
-   `if (typeof SharkyNet === 'undefined') return;` so it no-ops there — an
-   unhandled rejection in the sim kills the room session. The build's sim
-   gate enforces this (fails on leaked rejections / missing config).
+   page headlessly. Wrap each game script in an async IIFE that returns
+   early when `typeof SharkyNet === 'undefined'` (a bare top-level `return`
+   is a SyntaxError) so it no-ops there — an unhandled rejection in the sim
+   kills the room session. One exception: a `__SHARKY_RULES__` script
+   carries NO guard — it exists to run in the sim (hard-parts §2). The
+   build's sim gate enforces this (fails on leaked rejections / missing
+   config).
 
 ## API (assets/sharky-net.js)
 
 ```js
 const net = await SharkyNet.ready();
 net.me()            // { id, isHost, room }
-net.isHost()        // host = game owner's connection (start privilege); a live
-                     // poll — real-page roles resolve async, seconds (gotcha 15c)
+net.isHost()        // host = the connection that CREATED the room (start
+                     // privilege — not tied to game ownership); a live
+                     // poll — real-page roles resolve async, seconds
+                     // (gotcha 15c)
 net.start()         // host only: lobby -> playing
 net.send(op)        // ordered bus; false when throttled/oversized (streams: fine)
 net.sendReliable(op) // queues instead of dropping — discrete must-arrive ops
@@ -74,7 +79,7 @@ net.quality()       // {tier: good|degraded|critical, rttMs, updateAgeMs} —
                      // fresh & relay ping ≤0.9s; critical = disconnected
                      // or world stale >3s.
 net.connected()     // live link state; net.on('connection', ({kind}) => {})
-                     // kind: open|closed|error|epoch — surface it in the UI:
+                     // kind: open|closed|error|epoch|quality — surface it in the UI:
                      // a silent stall is otherwise indistinguishable from
                      // "the game broke" (epoch = sim generation flip; the
                      // client resyncs itself when needed)
@@ -99,7 +104,8 @@ rounds, ghost lifecycle + out-state legibility, role-resolution-safe start).
 Vendored libs: put `/*__VENDOR:three-0.161.0.global.min__*/` inside a
 `<script>` tag and the build inlines `assets/vendor/<name>.js` — the
 placeholder name carries NO `.js` suffix (`ls assets/vendor/` to see what
-ships). Any `<name>.js` added to that directory inlines the same way — the
+ships). Any `<name>.js` added to that directory inlines the same way
+(name chars A-Za-z0-9._-; an unexpanded placeholder fails the build) — the
 shipped list is just what's pre-bundled (an existing game's exact CDN build,
 saved there, keeps its rendering byte-identical).
 Converting an existing single-file game? `references/retrofit.md` maps its
@@ -268,13 +274,14 @@ bun <skill>/scripts/dev-serve.ts --html dist/index.html --game-id <id>
   When you do publish, announce it in one line; honor any request to stay
   local. Publishing is repeatable — same `--game-id` overwrites, links stay.
 - Genre guidance: party/turn-based/casual/co-op fit the 400ms bus natively;
-  for twitch genres implement gameplay-level prediction (the game owns its
-  logic — that freedom is the point of this path).
+  in twitch genres the tax falls on player-to-player interaction — your own
+  input echoes locally at once (untaxed), other bodies are reconstruction,
+  not gameplay-level prediction (the measured boundary: hard-parts §1).
 - Lobby legibility: show the connected player count; when solo, tell the
   player friends join via the Invite link (see gotcha 15b — a fresh room
   otherwise reads as "multiplayer is broken"). `players()` carries each
-  player's display_name (the shim's `initPlayer` fills it), so a named
-  roster renders straight from it.
+  player's `name` (the shim's `initPlayer` fills it from the platform's
+  display_name), so a named roster renders straight from it.
 - Multiplayer QUALITY levers — read `references/hard-parts.md` before
   designing any real-time genre: §0 presence rig is the settled seam
   plumbing (self-echo/replay/throttle/ghost lifecycle/identity naming/lobby

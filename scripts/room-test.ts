@@ -112,8 +112,8 @@ for (let i = 0; i < 10; i++) {
 }
 await new Promise((r) => setTimeout(r, 3000))
 
-const sA = await inGame<any>(A, () => (window as any).SharkyNet.stats())
-const sB = await inGame<any>(B, () => (window as any).SharkyNet.stats())
+const sA = await inGame<any>(A, () => Object.assign((window as any).SharkyNet.stats(), { rttMs: (window as any).SharkyNet.quality().rttMs }))
+const sB = await inGame<any>(B, () => Object.assign((window as any).SharkyNet.stats(), { rttMs: (window as any).SharkyNet.quality().rttMs }))
 console.log('[A]', JSON.stringify(sA))
 console.log('[B]', JSON.stringify(sB))
 await browser.close()
@@ -122,4 +122,4 @@ if (!sA || !sB) throw new Error('SharkyNet stats unavailable — is the game bui
 if (sA.stateUpdates === 0) throw new Error('sim never broadcast — check the published HTML contains the shim config')
 if (sA.applied < sA.sent + 5) throw new Error('A did not receive both op streams')
 if (sB.applied < sB.sent + 5) throw new Error('B did not receive both op streams')
-console.log(`\n✅ ROOM OK — ordered bus verified · A rtt≈${sA.lastRttMs}ms B rtt≈${sB.lastRttMs}ms`)
+console.log(`\n✅ ROOM OK — ordered bus verified · A rtt≈${sA.rttMs}ms B rtt≈${sB.rttMs}ms`)

@@ -18,10 +18,13 @@ a numeric hunt needs a text search, not a scroll.
    placeholder cost us half a day — the build's sim gate now catches this.
 1c. **Unhandled promise rejections KILL the sim session**
    (`session dead reason=unhandled_rejection`). An `await SharkyNet.ready()`
-   that rejects in the sandbox is enough. Rule: every game script must no-op
-   in the sim — start with `if (typeof SharkyNet === 'undefined') return;`
-   (sharky-net itself exits early when `window.addEventListener` is missing).
-   The build gate fails on leaked rejections.
+   that rejects in the sandbox is enough. Rule: every game script no-ops
+   in the sim — wrap it in an async IIFE and return early when
+   `typeof SharkyNet === 'undefined'` (a bare top-level `return` is a
+   SyntaxError; sharky-net itself exits early when
+   `window.addEventListener` is missing). The one exception is a
+   `__SHARKY_RULES__` script — no guard, it exists to run in the sim
+   (hard-parts §2). The build gate fails on leaked rejections.
 1d. **Debugging**: relay+sim logs live in journald on the sg-relay hosts;
    `journalctl --since today | grep <gameId>` shows `sim join failed` /
    `sim_warmup_failed` with the exact fetch URL and error.
@@ -148,5 +151,6 @@ a numeric hunt needs a text search, not a scroll.
 - Op round trip (send → back in state_update): **min ~350ms · median ~400ms ·
   p95 ~780ms**. state_update cadence is steady.
 - Design rule: **local echo immediately, reconcile on op order.** Party /
-  turn-based / casual games need nothing else; twitch games need
-  gameplay-level prediction (your logic owns it).
+  turn-based / casual games need nothing else; twitch games get feel from
+  the same local echo — other bodies stay reconstruction, not
+  gameplay-level prediction (hard-parts §1).

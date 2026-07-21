@@ -44,6 +44,26 @@
   var mock = null;
   var replayWatermark = null; // seq horizon at join: entries at/below it are replayed history
 
+  // Mock-only rules ticker: the real sim drives __SHARKY_RULES__.onTick
+  // from its own loop (~30 ticks/s, dt in seconds); offline nothing else
+  // would, so tick-driven rules state (timers, decision windows) froze at
+  // init and net.game() silently diverged from the live room. Ticked once
+  // per mock state frame (~150ms), dt wall-anchored so a throttled tab
+  // catches up on total time, not frame count.
+  var mockRulesTickAt = 0;
+  function mockRulesTick() {
+    if (!mock) return;
+    var R = window.__SHARKY_RULES__ || null;
+    if (!R || typeof R.onTick !== 'function') return;
+    if (!state.game) { state.game = {}; if (typeof R.init === 'function') { try { R.init(state.game); } catch (e) {} } }
+    var now = Date.now();
+    if (!mockRulesTickAt) { mockRulesTickAt = now; return; }
+    var dt = (now - mockRulesTickAt) / 1000;
+    mockRulesTickAt = now;
+    if (dt <= 0) return;
+    try { R.onTick(state.game, dt); } catch (e) {}
+  }
+
   function bridge() { return window.__DELTA_BRIDGE__ || window.__DELTA_RUNTIME__ || null; }
 
   // Mock transport (dev harness). The real bridge.js loads after the harness
@@ -232,8 +252,9 @@
             try { pc.fn(entry.o, { seq: entry.s, rttMs: state.stats.lastRttMs }); } catch (e) {}
           }
         }
-        // Mock rooms have no sim — run the game's rules locally in bus order
-        // so net.game() behaves identically offline.
+        // Mock rooms have no sim — run the game's rules locally (ops in
+        // bus order here, onTick per state frame below) so net.game()
+        // behaves the same offline.
         if (mock && typeof window.__SHARKY_RULES__ === 'object' && window.__SHARKY_RULES__ && typeof window.__SHARKY_RULES__.onOp === 'function') {
           if (!state.game) { state.game = {}; if (typeof window.__SHARKY_RULES__.init === 'function') { try { window.__SHARKY_RULES__.init(state.game); } catch (e) {} } }
           try { window.__SHARKY_RULES__.onOp(state.game, entry.o, String(entry.u || '')); } catch (e) {}
@@ -242,6 +263,7 @@
         emit('op', entry.o, { seq: entry.s, uid: String(entry.u || ''), self: !!self, replayed: replayed, staleMs: staleMs });
       }
     }
+    mockRulesTick();
     emit('update', st);
   }
 
