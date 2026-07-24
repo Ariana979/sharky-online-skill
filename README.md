@@ -1,7 +1,8 @@
-# sharky-online — multiplayer HTML games from a one-sentence prompt
+# sharky-online — an agent skill for multiplayer HTML games
 
-An agent skill: describe a game in one sentence (or hand over an
-existing single-file HTML game) and your AI coding agent builds it,
+An agent skill: describe the game you want — however you like, from a
+casual sentence to a full design doc — (or hand over an existing
+single-file HTML game) and your AI coding agent builds it,
 wires in real platform multiplayer, lets you playtest locally, and —
 only after you say so — publishes it to [sharky.gg](https://sharky.gg)
 under your own account. Real rooms, invite links, a server-ordered sync
