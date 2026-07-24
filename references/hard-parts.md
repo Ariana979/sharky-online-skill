@@ -86,12 +86,16 @@ entity style, interpolation feel, and all visuals remain entirely yours.
    (platforms, hazards, timed doors) must animate on ROOM time, not
    `performance.now()` — the local epoch is each page's load moment, so
    every client would render the same mover at a different phase.
-   `state.clock` (sim seconds, whole-second steps) rides every `'update'`;
+   `state.clock` (whole-second steps; advances only while the room is
+   PLAYING — stalled in lobby/result) rides every `'update'`;
    anchor NTP-style — offset = MAX(sample) ever seen (the fastest-delivered
    packet is closest to true room time), advance purely on local monotonic
-   time, re-baseline only on a large backward move (sim rewarm). Re-anchoring
-   on every arrival injects network jitter into the world as a visible
-   once-a-second lurch. And replicate
+   time, re-baseline only on a large backward move (sim rewarm). A stall a
+   client witnesses becomes that client's permanent forward bias under an
+   ever-MAX anchor (skew = difference in witnessed stall; live-measured
+   2026-07-21: a 12s lobby stall → a steady ~10s cross-client skew).
+   Re-anchoring on every arrival injects network jitter into the world
+   as a visible once-a-second lurch. And replicate
    RIDERS platform-relative (mover id + local offset in the pose): a frozen/
    backgrounded page stops simulating, so its broadcast absolute coords go
    stale — receivers re-base the offset onto their own shared-clock mover

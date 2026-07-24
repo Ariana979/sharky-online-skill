@@ -4,10 +4,9 @@
 //       --min-players 2 --max-players 8 --out dist/index.html
 //
 // Injects, right after <body> (or before the first <script> if no <body>):
-//   1. focus rescue       — reclaims host-shell keyboard focus (browser only)
-//   2. bridge.js          — platform identity/room/relay transport
-//   3. shim game config   — inert here; executed by the server-side sim
-//   4. sharky-net.js      — the ordered-op bus API the game code uses
+//   1. bridge.js          — platform identity/room/relay transport
+//   2. shim game config   — inert here; executed by the server-side sim
+//   3. sharky-net.js      — the ordered-op bus API the game code uses
 //
 // The game HTML stays fully free-form. Its only obligations:
 //   await SharkyNet.ready(); use SharkyNet.send/on/setShared for ALL shared
@@ -57,22 +56,7 @@ if (/\/\*__VENDOR:/.test(htmlWithVendors)) {
   throw new Error('unexpanded /*__VENDOR:<name>__*/ placeholder — vendor names take [A-Za-z0-9._-]')
 }
 
-// Host-shell focus rescue: the platform game page can load with keyboard
-// focus outside the game iframe, and a guest may have no in-game button
-// whose click would transfer it (live-measured 2026-07-20: guest keyboard
-// 0/5 before, 3/3 with boot rescue). window.focus() targets the WINDOW — it
-// never steals focus from elements inside the game. No-ops in the
-// headless sim (bare document, no addEventListener).
-const focusRescue = `(() => {
-  if (typeof window === 'undefined' || typeof document === 'undefined' || !document.addEventListener) return;
-  const grab = () => { try { window.focus(); } catch (e) {} };
-  grab();
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') grab(); });
-  document.addEventListener('pointerdown', grab, true);
-})();`
-
-const runtime = `<script>/* sharky-online runtime: host-shell focus rescue */\n${focusRescue}\n</script>\n` +
-  `<script>/* sharky-online runtime: bridge */\n${bridge}\n</script>\n` +
+const runtime = `<script>/* sharky-online runtime: bridge */\n${bridge}\n</script>\n` +
   `<script>/* sharky-online runtime: sim shim (inert in browser) */\n${shim}\n</script>\n` +
   `<script>/* sharky-online runtime: net API */\n${net}\n</script>\n`
 

@@ -146,6 +146,27 @@ a numeric hunt needs a text search, not a scroll.
     a human eyeball on the filmstrip before handover. The playtest gate
     (scripts/playtest-gate.ts) encodes all four.
 
+20. **A flipped sign in camera-relative input mapping outlives every check
+    that returns a pass.** Escaped to the player twice (measured): once as
+    R(+yaw) where the camera convention needed R(−yaw) — the two coincide
+    at the default heading (yaw 0/π) and the scripted playtests never
+    rotated the camera, so it surfaced live as "sometimes inverted"; once
+    as the forward basis taken from the pivot→camera offset instead of its
+    negation — W/S constantly swapped, A/D untouched. The checks that
+    passed were structurally incapable of seeing it: facing·velocity dots
+    compare two velocity-derived quantities, so no key enters the oracle
+    (≥0.99 on the inverted axis); a single key-driven still under a follow
+    camera holds no displacement — the camera re-centers the avatar every
+    frame; the eyeballed calibration walks used only the healthy axis. The
+    checks aimed at the discriminating reference died unread: facing
+    stills labeled "away from camera" came back illegible (avatar occluded,
+    then a near-top-down camera angle) and the run retreated to the healthy
+    axis; the filmstrip — a sequence, where the world does slide past
+    (cf. 16) — ran on the buggy build but was read for rendering and
+    layout, not key→direction. Both catches were a human hand on the keys
+    in a real room; the camera's actual view axis is the same reference
+    class by mechanism — inferred here, not exercised.
+
 ## Latency model (measured)
 
 - Op round trip (send → back in state_update): **min ~350ms · median ~400ms ·

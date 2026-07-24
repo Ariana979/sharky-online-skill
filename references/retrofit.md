@@ -26,9 +26,9 @@ camera) · single-player state (own HP, own animation) · room-wide rules
 The first three classes are untaxed — they stay exactly as written. Only
 the last two are seam work. Room-wide rules meet hard-parts §0 fact 8: a
 deadline written on a page clock dies with its page; written as absolute
-shared-clock time T (`net.on('update', st => st.clock)`, sim seconds —
-anchoring recipe in §0 fact 6) it is recomputable on every client at any
-moment.
+shared-clock time T (`net.on('update', st => st.clock)`, playing-phase
+seconds — anchoring recipe and stall boundary in §0 fact 6) it is
+recomputable on every client at any moment.
 
 ## 2. Inventory the driver-private decisions
 
