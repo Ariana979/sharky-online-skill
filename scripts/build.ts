@@ -155,8 +155,8 @@ console.log(`[build] sim gate: ${gate.detail}`)
 // silent on any failure. Updating stays the USER's decision — the notice
 // only names the command to run after they approve.
 // Opt out entirely: SHARKY_SKILL_NO_UPDATE_CHECK=1.
-const DIST_REPO_API = 'https://api.github.com/repos/Ariana979/sharky-online-skill/commits/main'
-const DIST_RAW_RELEASE = 'https://raw.githubusercontent.com/Ariana979/sharky-online-skill/main/.release'
+const DIST_REPO_API = 'https://api.github.com/repos/Alterverse-tech/sharky-online-skill/commits/main'
+const DIST_RAW_RELEASE = 'https://raw.githubusercontent.com/Alterverse-tech/sharky-online-skill/main/.release'
 async function skillUpdateNotice(): Promise<void> {
   try {
     if (process.env.SHARKY_SKILL_NO_UPDATE_CHECK === '1') return
@@ -206,7 +206,7 @@ async function skillUpdateNotice(): Promise<void> {
     stamp()
     if (!remote || remote === local) return
     console.log(`[skill] a newer skill release exists (this copy ${local.slice(0, 7)} ≠ latest ${remote.slice(0, 7)})`)
-    console.log('[skill] this copy was installed without git — updating is the user\'s call: re-download https://github.com/Ariana979/sharky-online-skill (or reinstall via git clone for one-command updates)')
+    console.log('[skill] this copy was installed without git — updating is the user\'s call: re-download https://github.com/Alterverse-tech/sharky-online-skill (or reinstall via git clone for one-command updates)')
   } catch { /* never let the notice affect a build */ }
 }
 await skillUpdateNotice()

@@ -1,6 +1,6 @@
 ---
 name: sharky-online
-description: Build a free-form HTML game in Claude Code and publish it to sharky.gg with real platform multiplayer (accounts, rooms, server-ordered sync bus). Trigger when the user wants to make a game for sharky.gg, add sharky multiplayer to an HTML game, or publish/update a game on the platform.
+description: Build a free-form HTML game and publish it to sharky.gg with real platform multiplayer (accounts, rooms, server-ordered sync bus). Trigger when the user wants to make a game for sharky.gg, add sharky multiplayer to an HTML game, or publish/update a game on the platform.
 ---
 
 # sharky-online — free-form HTML games with sharky.gg multiplayer
@@ -265,7 +265,7 @@ say yes).
 bun <skill>/scripts/dev-serve.ts --html dist/index.html --game-id <id>
 ```
 
-## What Claude should do when driving this skill
+## What the agent should do when driving this skill
 
 - Keep the creative loop local (steps 1–3). The user plays before the world
   does: deliver the local play link, publish on their word (workflow step 4).
