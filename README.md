@@ -26,7 +26,7 @@ Desktop app / terminal CLI — one command, installs once for the whole
 machine (both see the same skills directory):
 
 ```bash
-git clone https://github.com/Ariana979/sharky-online-skill ~/.claude/skills/sharky-online
+git clone https://github.com/Alterverse-tech/sharky-online-skill ~/.claude/skills/sharky-online
 ```
 
 Per-project alternative: clone into the project's
