@@ -34,6 +34,7 @@ const SUPABASE_URL = 'https://yhvgdxuwxyergytakxvn.supabase.co'
 const SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlodmdkeHV3eHllcmd5dGFreHZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcxMDM0MzcsImV4cCI6MjA2MjY3OTQzN30.wr_wxValc6HSAIaIVOiSYmKWMAdMbHzBWWqR0IFprHk'
 const DEFAULT_API_BASE = 'https://prod-game-maker.sharky.gg'
+const SIM_MAX_HTML_BYTES = 12_000_000
 
 const args: Record<string, string> = {}
 const argv = process.argv.slice(2)
@@ -62,11 +63,12 @@ function loadHtml() {
   if (!/window\.__DELTA_GAME_CONFIG__\s*=/.test(html)) {
     throw new Error('built HTML missing the sim shim — run scripts/build.ts first')
   }
-  // The server-side sim refuses oversized pages (SIM_MAX_HTML_BYTES: 2MB stock,
-  // 6MB on current prod relays) — publish would succeed but rooms never sync
+  // The server-side sim refuses pages above SIM_MAX_HTML_BYTES (12MB on all
+  // current deployments) — publish would succeed but rooms never sync
   // (gotcha 1e: sim_warmup_failed, zero state_updates).
-  if (html.length > 2_000_000) {
-    console.warn(`[publish] WARNING: page is ${(html.length / 1e6).toFixed(2)}MB — sim fetch cap is SIM_MAX_HTML_BYTES (2MB stock / 6MB current prod). Oversized pages publish fine but never sync.`)
+  const htmlBytes = Buffer.byteLength(html, 'utf8')
+  if (htmlBytes > SIM_MAX_HTML_BYTES) {
+    console.warn(`[publish] WARNING: page is ${(htmlBytes / 1e6).toFixed(2)}MB — sim fetch cap is ${SIM_MAX_HTML_BYTES.toLocaleString('en-US')} bytes (12MB). Oversized pages publish fine but never sync.`)
   }
 }
 

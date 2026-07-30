@@ -29,12 +29,12 @@ a numeric hunt needs a text search, not a scroll.
    `journalctl --since today | grep <gameId>` shows `sim join failed` /
    `sim_warmup_failed` with the exact fetch URL and error.
 1e. **The sim's page fetch has a SIZE CAP** — `SIM_MAX_HTML_BYTES` in the
-   sim-service `.env` (2,000,000 stock; prod sg-relays raised to 6,000,000
-   on 2026-07-05). An oversized page (e.g. base64-embedded models) →
+   sim-service `.env` (12,000,000 bytes across all deployments since
+   2026-07-30). An oversized page (e.g. base64-embedded models) →
    `sim join failed status=500 "game html too large"` → `sim_warmup_failed`
    → clients see zero state_updates while everything else "works". Local
-   build/publish pass fine — nothing client-side hints at it. A 4.65MB page
-   warms in ~6s once under the cap. publish.ts warns above 2MB.
+   build/publish pass fine — nothing client-side hints at it. publish.ts
+   measures the built page in UTF-8 bytes and warns above 12MB.
 
 ## Platform / publishing
 2. **Supabase storage serves HTML as `text/plain` + nosniff** (bucket policy —
