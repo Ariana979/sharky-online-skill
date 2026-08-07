@@ -1,24 +1,37 @@
 // dev-serve.ts — local two-player harness for built games. No token needed.
 //
 //   bun scripts/dev-serve.ts --html dist/index.html [--port 5199] [--game-id <published id>]
+//   bun scripts/dev-serve.ts --game my-game.html    [--port 5199]   # authoring loop, see SOURCE mode
 //
 // Modes:
 //   MOCK (default)  — /dev shows two iframes; the parent page runs a local sim
 //                     with the same ordering semantics as the platform
 //                     (ordered log + KV). Fast gameplay iteration, offline.
+//   SOURCE          — pass --game <authored.html> instead of --html: the
+//                     runtime is injected per request (same code path as
+//                     build.ts), so the authoring loop is edit → reload with
+//                     no build command between. The vm sim gate does NOT run
+//                     here — run build.ts before the §2.5 checks and publish.
 //   ONLINE          — pass --game-id of a PUBLISHED game: the harness signs two
 //                     guest bootstraps against the real platform and the two
 //                     iframes join a real server_sim room (real relay, real
 //                     ordering, real latency).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { injectRuntime } from './inject.ts'
 
 const args: Record<string, string> = {}
 const argv = process.argv.slice(2)
 for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) args[argv[i].slice(2)] = argv[i + 1] ?? ''
-const htmlPath = resolve(args.html || 'dist/index.html')
+const gameSrc = args.game ? resolve(args.game) : ''
+const htmlPath = gameSrc || resolve(args.html || 'dist/index.html')
 const port = Number(args.port) || 5199
 const gameId = args['game-id'] || ''
+const skillRoot = resolve(import.meta.dir, '..')
+if (gameSrc && gameId) {
+  console.error('[dev-serve] --game (source authoring) and --game-id (online room) are mutually exclusive — the online room needs the BUILT page a real publish serves')
+  process.exit(1)
+}
 
 const MOCK_PARENT = `<!DOCTYPE html><html><head><title>sharky dev — mock room</title>
 <style>html,body{margin:0;height:100%;background:#020617}
@@ -175,11 +188,22 @@ const serveOpts = {
     if (p === '/online-a') return new Response(ONLINE_PARENT('bs-a.json'), { headers: { 'content-type': 'text/html; charset=utf-8' } })
     if (p === '/online-b') return new Response(ONLINE_PARENT('bs-b.json'), { headers: { 'content-type': 'text/html; charset=utf-8' } })
     if (p === '/game.html') {
-      // HOT: re-read the file on every request — after a rebuild, just
-      // reload the page; no server restart. A read can race build's write,
-      // so tell the client to retry instead of serving a torn file.
+      // HOT: re-read the file on every request — after a rebuild (or, in
+      // SOURCE mode, any edit), just reload the page; no server restart. A
+      // read can race build's write, so tell the client to retry instead of
+      // serving a torn file.
       let raw: string
       try { raw = readFileSync(htmlPath, 'utf8') } catch { return new Response('rebuilding — reload in a moment', { status: 503 }) }
+      if (gameSrc) {
+        // SOURCE mode: inject the runtime now (shared code path with
+        // build.ts). A contract violation must fail LOUD in the pane, not
+        // serve a stale/partial page — build.ts keeps that same fail-fast.
+        try {
+          raw = injectRuntime(raw, { skillRoot, title: args.title, minPlayers: Number(args['min-players']), maxPlayers: Number(args['max-players']) })
+        } catch (e: any) {
+          return new Response(`game contract violation — fix the source and reload:\n\n${String(e?.message ?? e)}`, { status: 500, headers: { 'content-type': 'text/plain; charset=utf-8' } })
+        }
+      }
       const body = gameId ? raw : raw.replace(/<body[^>]*>/i, (m) => m + MOCK_SHIM)
       return new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } })
     }
@@ -212,9 +236,10 @@ if (chosenPort !== port) console.log(`[dev-serve] port ${port} busy → using ${
 let snippetPort = 5200 + (Array.from(htmlPath).reduce((h, c) => ((h * 31 + c.charCodeAt(0)) >>> 0), 0) % 200)
 if (snippetPort === chosenPort) snippetPort = 5200 + ((snippetPort - 5200 + 7) % 200)
 
-console.log(`[dev-serve] http://127.0.0.1:${chosenPort}/ — ${gameId ? 'ONLINE room (real relay+sim)' : 'MOCK room (offline local sim)'} (/ and /dev serve the same room — a fresh preview lands inside it, no navigation needed)`)
+console.log(`[dev-serve] http://127.0.0.1:${chosenPort}/ — ${gameId ? 'ONLINE room (real relay+sim)' : gameSrc ? 'MOCK room (offline local sim, SOURCE mode)' : 'MOCK room (offline local sim)'} (/ and /dev serve the same room — a fresh preview lands inside it, no navigation needed)`)
 console.log(`[dev-serve] pid ${process.pid} — stop: kill ${process.pid}`)
-console.log(`[dev-serve] hot: the --html file is re-read on every request — rebuild, then just reload the page (no restart needed)`)
+if (gameSrc) console.log(`[dev-serve] hot+inject: the --game SOURCE is injected per request — edit, then just reload the page (no build command between; run build.ts before §2.5 checks / publish — the vm sim gate only runs there)`)
+else console.log(`[dev-serve] hot: the --html file is re-read on every request — rebuild, then just reload the page (no restart needed)`)
 console.log(`[dev-serve] live-play it (author-time eyes): open the room in a browser; if wiring the Claude Preview panel, it spawns its OWN instance from this snippet (this process stays separate):`)
-console.log(`  { "name": "sharky-dev", "runtimeExecutable": "bun", "runtimeArgs": ["${process.argv[1]}", "--html", "${htmlPath}", "--port", "${snippetPort}"], "port": ${snippetPort} }`)
+console.log(`  { "name": "sharky-dev", "runtimeExecutable": "bun", "runtimeArgs": ["${process.argv[1]}", "${gameSrc ? '--game' : '--html'}", "${htmlPath}", "--port", "${snippetPort}"], "port": ${snippetPort} }`)
 if (!gameId) console.log(`[dev-serve] the room's parent page exposes __MOCK_ROOM__.snapshot() — visible/phase/seq/players + per-frame errors/focus/env in one eval; each pane also carries __ENV_HEALTH__ {rafHz, visibility} (rafHz 0 = that pane's rAF is frozen; -1 = not yet sampled); the top bar shows the same as a live TAB HIDDEN warning`)

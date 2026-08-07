@@ -5,6 +5,19 @@ The platform taxes exactly ONE thing: **player-to-player interaction density**
 visuals, audio, and solo content are untaxed — spend freely there. These
 patterns claw back the taxed part. Use them; don't reinvent them mid-build.
 
+Map — read the sections your build touches:
+- **§0** presence rig: eight bus facts + the degrade contract — any game
+  showing remote players (turn-based/async games skip it, per §0's note);
+  `examples/skeleton.html` ships this rig pre-assembled and gate-verified.
+- **§0.9** adoption skeletons: quality chip, claim pickup, replay guard,
+  win-path probe — worked snippets for those four surfaces.
+- **§1** ghost soft-contact, shove/impulse ops, the settlement op — any
+  genre where players touch.
+- **§2** `__SHARKY_RULES__` server arbitration — outcomes that must be fair
+  under mixed latency (contested pickups, photo finishes, scoring).
+- **§2.5** visual affordance: solid props + room-level verbs — every game.
+- **§3** what not to fight — every real-time design.
+
 ## 0. The presence rig — eight bus facts every live-presence game handles
 
 These follow from the transport itself (ordered log with replay, ≤15/s
@@ -197,7 +210,11 @@ Worked reference for the quality, claim, replay-guard, and win-path-probe
 surfaces. The snippets demonstrate; canonical semantics for the first
 three stay in the SKILL.md API block and sharky-net.js — the probe's
 semantics live in the Playwright API and the game's own `__PLAYTEST__`
-contract.
+contract. The ASSEMBLED version of the §0 rig plus the round lifecycle
+(reliable round op + idempotence guard + KV mirror + round-stamped result
+latch + host restart) is `examples/skeleton.html` — copy it instead of
+transcribing these snippets when starting a new game; they stay here as
+the reference for what each seam line protects.
 
 **Quality chip + disconnect toast** — display the tier or the EMA
 (`q.rttMs`), not raw single samples: a healthy long-haul link brushes the

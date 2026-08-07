@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Skeleton — sharky-online seam, assembled</title>
+<!--
+  COPY THIS FILE to start a new game. Everything marked TASTE is yours to
+  replace wholesale (rendering, movement, the round rule, all visuals).
+  Everything else is the SEAM — the invariant platform plumbing, assembled
+  per references/hard-parts.md (§/fact numbers cited inline) and kept green
+  against build.ts + playtest-gate. Change seam code with hard-parts open;
+  the cited fact says what the line protects.
+  3D / three.js games: examples/round-arena-3d.html shows this same seam
+  assembled in a full scene.
+-->
+<style>
+  /* TASTE: all styling is yours. */
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0f172a;
+    font-family:ui-rounded,system-ui,sans-serif;color:#e2e8f0}
+  canvas{position:absolute;inset:0}
+  #hud{position:absolute;top:10px;left:10px;font:12px ui-monospace;line-height:1.6;
+    background:rgba(2,6,23,.65);border:1px solid #1e293b;border-radius:10px;padding:6px 10px}
+  #lobby{position:absolute;inset:0;display:grid;place-items:center;text-align:center;
+    background:rgba(2,6,23,.75)}
+  #lobby button{padding:12px 40px;font-size:18px;border-radius:12px;border:0;
+    background:#22d3ee;color:#083344;font-weight:700;cursor:pointer}
+  #banner{position:absolute;top:18%;width:100%;text-align:center;font-size:26px;
+    font-weight:700;text-shadow:0 2px 8px #000;pointer-events:none;opacity:0;transition:opacity .3s}
+</style>
+</head>
+<body>
+<!-- scripts/build.ts injects the sharky runtime right after <body> -->
+<canvas id="game"></canvas>
+<div id="hud">connecting…</div>
+<div id="banner"></div>
+<div id="lobby">
+  <div>
+    <h1>SKELETON</h1><!-- TASTE: your title/lobby art -->
+    <div id="roster" style="min-height:3em;margin:8px 0"></div>
+    <div id="hint" style="color:#94a3b8;margin-bottom:14px"></div>
+    <!-- SEAM: the gate presses exactly #start-btn — keep the id. -->
+    <button id="start-btn">START</button>
+    <div id="result" hidden style="margin-top:14px">
+      <div id="result-text"></div>
+      <button id="round-btn" style="margin-top:8px">NEW ROUND</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(async function () {
+  // SEAM, contract rule 5: no-op inside the platform sim sandbox — an
+  // unhandled rejection there kills the room session (gotcha 1c).
+  if (typeof SharkyNet === 'undefined') return;
+  const net = await SharkyNet.ready();
+
+  const cvs = document.getElementById('game'), ctx = cvs.getContext('2d');
+  const hud = document.getElementById('hud'), banner = document.getElementById('banner');
+  const lobby = document.getElementById('lobby'), roster = document.getElementById('roster');
+  const hint = document.getElementById('hint'), startBtn = document.getElementById('start-btn');
+  const resultCard = document.getElementById('result'), resultText = document.getElementById('result-text');
+  const roundBtn = document.getElementById('round-btn');
+  const fit = () => { cvs.width = innerWidth; cvs.height = innerHeight; };
+  addEventListener('resize', fit); fit();
+
+  // ——— TASTE: avatar model + movement ———
+  const SPEED = 260;
+  const me = { x: 0, y: 0 };
+  // FNV-style mix — similar uids (guest-1/guest-2) must land far apart
+  const hueOf = id => { let h = 2166136261; for (const c of id) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0; return h % 360; };
+  const spawn = () => { const a = (hueOf(net.me().id) / 360) * Math.PI * 2; return { x: Math.cos(a) * 120, y: Math.sin(a) * 120 }; };
+  // Target ring: derived from the round number, so every client computes the
+  // SAME target with zero traffic (§0 fact 8: seed/param-derivable content).
+  const targetOf = n => { const s = Math.sin(n * 12.9898) * 43758.5453, a = (s - Math.floor(s)) * Math.PI * 2; return { x: Math.cos(a) * 520, y: Math.sin(a) * 520, r: 42 }; };
+
+  // ——— SEAM: input (gotcha 13c) — a blur listener clears held keys, or the
+  // pane you alt-tab away from keeps "moving" on everyone's screen. ———
+  const keys = {};
+  addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+  addEventListener('keyup', e => { delete keys[e.key.toLowerCase()]; });
+  addEventListener('blur', () => { for (const k in keys) delete keys[k]; });
+
+  // ——— SEAM: identity (§0 fact 7) — names live in net.players()[uid].name;
+  // op.__tag is transport, never identity. Anything that outlives presence
+  // (the result line below) needs a uid → name cache. ———
+  const nameCache = {};
+  const nameOf = uid => { const p = net.players()[uid]; if (p && p.name) nameCache[uid] = p.name; return nameCache[uid] || uid.slice(0, 4); };
+
+  // ——— SEAM: pose stream (§0 facts 1+3) — LATEST pose on a timer, never the
+  // render loop (hidden pages freeze rAF but only throttle timers) and never
+  // every frame (coalesce; throttle drops are silent). Keep streaming in
+  // every state — a silent body reads as vanished on other screens. ———
+  setInterval(() => { if (net.phase() === 'playing') net.send({ k: 'pose', x: me.x, y: me.y }); }, 90);
+
+  // ——— SEAM: ghosts (§0 fact 4) — existence from the server roster, motion
+  // from the stream; snap when far (catch-up bursts), idle when silent,
+  // dispose on roster drop + a long-silence backstop. ———
+  const ghosts = {}; // uid -> { x, y, tx, ty, lastSeen }
+  function stepGhosts(dt) {
+    for (const uid in ghosts) {
+      const g = ghosts[uid];
+      const far = Math.hypot(g.tx - g.x, g.ty - g.y);
+      if (far > 300) { g.x = g.tx; g.y = g.ty; }                  // snap: land LIVE, don't replay
+      else { g.x += (g.tx - g.x) * Math.min(1, dt * 8); g.y += (g.ty - g.y) * Math.min(1, dt * 8); } // TASTE: steer feel
+      const silent = performance.now() - g.lastSeen;
+      const here = !!net.players()[uid];                          // afk ≠ gone; silence only stales motion
+      if ((!here && silent > 5000) || silent > 150000) delete ghosts[uid];
+    }
+  }
+
+  // ——— SEAM: one ordered-op handler (§0 facts 1+2, §0.9 replay guard) —
+  // streams skip self/replayed/stale wholesale; world events are the
+  // opposite: the sender applies its own event from the bus (a self-skip
+  // leaves the clicker in a private round) and replayed events are CONSUMED
+  // (that is how a latecomer catches up) — only one-shot effects gate on
+  // replay. State from every op; effects live-only. ———
+  let round = 0, winner = null, resultSent = false;
+  net.on('op', (op, meta) => {
+    if (op.k === 'pose') {                                        // stream
+      if (meta.self || meta.uid === net.me().id) return;
+      if (meta.replayed || meta.staleMs > 3000) return;
+      const g = ghosts[meta.uid] || (ghosts[meta.uid] = { x: op.x, y: op.y });
+      g.tx = op.x; g.ty = op.y; g.lastSeen = performance.now();
+      return;
+    }
+    if (op.k === 'round') {                                       // world event — no self-skip
+      if (op.n > round) applyRound(op.n);                         // idempotence guard: op, phase
+      return;                                                     // and KV paths all converge here
+    }
+    if (op.k === 'result') {                                      // settlement op (hard-parts §1):
+      if (op.n !== round || winner) return;                       // round-stamped, first-per-round latch
+      winner = { uid: op.uid, name: nameOf(op.uid) };             // state applies on replay too
+      if (!meta.replayed) showBanner(winner.name + ' wins!');     // effects live-only (§0.9)
+    }
+  });
+
+  // ——— SEAM: rounds are ROOM verbs (hard-parts §2.5) — the restart travels
+  // the bus as a reliable world event (must-arrive) AND mirrors to shared KV
+  // (§0 fact 2: the op log is a ~96-op window; a joiner past it rebuilds the
+  // round from KV). Host-only, same privilege shape as net.start(). ———
+  function applyRound(n) {
+    round = n; winner = null; resultSent = false;
+    Object.assign(me, spawn());                                   // TASTE: your reset
+    showBanner('ROUND ' + n);
+  }
+  roundBtn.addEventListener('click', () => {
+    if (!net.isHost() || !winner) return;
+    net.sendReliable({ k: 'round', n: round + 1 });               // the LIVE event
+    net.setShared('round', round + 1);                            // the DURABLE copy
+  });
+  net.on('phase', p => { if (p === 'playing' && round === 0) applyRound(1); });
+  const kvRound = () => { const n = net.shared().round; if (typeof n === 'number' && n > round) applyRound(n); };
+  net.on('update', kvRound); kvRound();
+
+  // ——— TASTE: the round rule. First to reach the ring reports its own win as
+  // a round-stamped reliable result op — bus order + the first-per-round
+  // latch above buy AGREEMENT on the winner (casual-fair). When fairness
+  // between near-simultaneous claimants matters, arbitrate in a
+  // __SHARKY_RULES__ script instead (hard-parts §2). ———
+  function checkWin() {
+    if (net.phase() !== 'playing' || winner || resultSent) return;
+    const t = targetOf(round);
+    if (Math.hypot(me.x - t.x, me.y - t.y) < t.r) {
+      resultSent = true;                                          // one send per round
+      net.sendReliable({ k: 'result', n: round, uid: net.me().id });
+    }
+  }
+
+  // ——— SEAM: start is a room verb rendered from LIVE polls (gotcha 15c) —
+  // real-page roles resolve async (seconds); a one-shot isHost() check at
+  // load would swallow clicks. The phase event moves every client out of
+  // the lobby, so nobody depends on their own click landing. ———
+  startBtn.addEventListener('click', () => { if (net.isHost()) net.start(); });
+
+  // ——— SEAM: lobby legibility (§0 fact 5, gotcha 15b) — show the count;
+  // when solo, say how friends join, or a fresh room reads as broken. ———
+  function renderLobby() {
+    const inLobby = net.phase() === 'lobby';
+    lobby.style.display = (inLobby || winner) ? 'grid' : 'none';
+    startBtn.style.display = (inLobby && net.isHost()) ? '' : 'none';
+    resultCard.hidden = !winner;
+    if (winner) {
+      resultText.textContent = winner.name + ' wins round ' + round;
+      roundBtn.disabled = !net.isHost();
+      roundBtn.textContent = net.isHost() ? 'NEW ROUND' : 'waiting for host…';
+    }
+    if (!inLobby) return;
+    const ids = Object.keys(net.players());
+    roster.innerHTML = ids.map(id => `<div>${nameOf(id)}${id === net.me().id ? ' — you' : ''}</div>`).join('') || '…';
+    hint.textContent = ids.length < 2
+      ? "solo so far — friends join via the room's Invite link"
+      : ids.length + ' players connected';
+  }
+  setInterval(renderLobby, 300); renderLobby();
+
+  // ——— SEAM: degrade contract (hard-parts §0) — bind UI to the tier, not
+  // raw samples; a silent stall otherwise reads as "the game broke". ———
+  net.on('connection', e => {
+    if (e.kind !== 'quality') return;
+    showBanner(e.tier === 'critical' ? '⚠ connection lost — reconnecting…'
+      : e.tier === 'degraded' ? '⚠ weak network' : '✓ connection recovered');
+  });
+
+  let bannerT = null;
+  function showBanner(text) {
+    banner.textContent = text; banner.style.opacity = 1;
+    clearTimeout(bannerT); bannerT = setTimeout(() => { banner.style.opacity = 0; }, 1800);
+  }
+
+  // ——— TASTE: render + own movement. Camera follows the avatar (that is
+  // what the filmstrip's central-band assert verifies). Own movement in rAF
+  // is fine — it is local echo; ROOM-wIDE progression must never live in a
+  // render loop (one hidden tab would stall the world — retrofit §3). ———
+  const worldToScreen = p => ({ x: p.x - me.x + cvs.width / 2, y: p.y - me.y + cvs.height / 2 });
+  let last = performance.now();
+  function frame(now) {
+    // clamp dt: rAF freezes in hidden tabs — an unclamped catch-up step
+    // teleports the avatar on return (§0 fact 3's catch-up arm)
+    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if (net.phase() === 'playing' && !winner) {
+      const dx = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
+      const dy = (keys.s || keys.arrowdown ? 1 : 0) - (keys.w || keys.arrowup ? 1 : 0);
+      const n = Math.hypot(dx, dy) || 1;
+      me.x += (dx / n) * SPEED * dt; me.y += (dy / n) * SPEED * dt;
+    }
+    stepGhosts(dt); checkWin();
+
+    // TASTE: everything below is drawing.
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, cvs.width, cvs.height);
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let gx = -(me.x % 80) - 80; gx < cvs.width + 80; gx += 80) { ctx.moveTo(gx, 0); ctx.lineTo(gx, cvs.height); }
+    for (let gy = -(me.y % 80) - 80; gy < cvs.height + 80; gy += 80) { ctx.moveTo(0, gy); ctx.lineTo(cvs.width, gy); }
+    ctx.stroke();
+    const t = targetOf(round), ts = worldToScreen(t);
+    ctx.strokeStyle = '#f472b6'; ctx.lineWidth = 4; ctx.beginPath();
+    ctx.arc(ts.x, ts.y, t.r + Math.sin(now / 250) * 5, 0, Math.PI * 2); ctx.stroke();
+    // pulsing direction arrow — the target is usually off-screen at spawn
+    const ta = Math.atan2(t.y - me.y, t.x - me.x), ar = 62 + Math.sin(now / 220) * 6;
+    const ax = cvs.width / 2 + Math.cos(ta) * ar, ay = cvs.height / 2 + Math.sin(ta) * ar;
+    ctx.fillStyle = '#f472b6'; ctx.save(); ctx.translate(ax, ay); ctx.rotate(ta);
+    ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-6, -7); ctx.lineTo(-6, 7); ctx.fill(); ctx.restore();
+    for (const uid in ghosts) {
+      const g = ghosts[uid], s = worldToScreen(g);
+      drawDot(s.x, s.y, `hsl(${hueOf(uid)} 70% 55%)`, nameOf(uid));
+    }
+    drawDot(cvs.width / 2, cvs.height / 2, `hsl(${hueOf(net.me().id)} 70% 65%)`, nameOf(net.me().id) + ' (you)');
+    requestAnimationFrame(frame);
+  }
+  function drawDot(x, y, color, label) {
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#e2e8f0'; ctx.font = '11px ui-monospace'; ctx.textAlign = 'center';
+    ctx.fillText(label, x, y - 24);
+  }
+  requestAnimationFrame(frame);
+
+  net.on('players', renderLobby); // §0 fact 7: names arrive/update via this event
+  setInterval(() => {
+    const q = net.quality();      // §0.9: tier/EMA, never raw samples
+    hud.textContent = `round ${round} · phase ${net.phase()} · ` +
+      (q.tier === 'good' ? '🟢' : q.tier === 'degraded' ? '🟡 unstable link' : '🔴 connection lost');
+  }, 1000);
+
+  // ——— SEAM: playtest hooks (§0.9 win-path probe) — read hooks ship
+  // harmlessly; state-WRITING hooks exist only under the mock harnesses. ———
+  window.__PLAYTEST__ = {
+    focusScreenPos: () => ({ x: 0.5, y: 0.5 }),   // camera-follow: avatar is the screen center
+    state: () => ({ phase: net.phase(), round, winner: winner && winner.uid, ghosts: Object.keys(ghosts).length }),
+  };
+  if (window.__SHARKY_LOCAL_BUS__) {              // mock rooms only — never on the live page
+    __PLAYTEST__.teleport = () => { const t = targetOf(round); me.x = t.x - t.r - 20; me.y = t.y; };
+  }
+})();
+</script>
+</body>
+</html>

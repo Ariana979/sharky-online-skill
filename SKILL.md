@@ -96,9 +96,15 @@ Commands below run from your game's directory; `<skill>` stands for this
 skill's base directory (printed at the top when the skill loads).
 
 **1. Write the game** — free-form HTML in one file, using the API above.
-Study `examples/cursor-arena.html` for the local-echo + ordered-apply pattern;
-`examples/round-arena-3d.html` is the 3D live-presence variant (world-event
-rounds, ghost lifecycle + out-state legibility, role-resolution-safe start).
+For any game with live presence, START by copying `examples/skeleton.html`:
+the invariant platform seam (sim guard, presence rig, round lifecycle + KV
+mirror, lobby legibility, degrade chip, playtest hooks) assembled and kept
+green against build + gates — replace everything marked TASTE freely;
+change SEAM lines with the hard-parts fact they cite open.
+`examples/cursor-arena.html` is the minimal local-echo + ordered-apply
+read; 3D/three.js games: study `examples/round-arena-3d.html` — the same
+seam assembled in a full scene (world-event rounds, ghost lifecycle +
+out-state legibility, role-resolution-safe start).
 Vendored libs: put `/*__VENDOR:three-0.161.0.global.min__*/` inside a
 `<script>` tag and the build inlines `assets/vendor/<name>.js` — the
 placeholder name carries NO `.js` suffix (`ls assets/vendor/` to see what
@@ -114,20 +120,34 @@ time sources and state onto this seam.
 bun <skill>/scripts/build.ts --game my-game.html --title "My Game" \
     --min-players 2 --max-players 8 --out dist/index.html
 ```
+`--smoke` chains the smoke render check onto the same invocation — the
+one-command inner loop (build + render check, combined exit code).
 
-**2.5 Deterministic checks** — what the machines can assert on the fresh build:
+**2.5 Deterministic checks** — what the machines can assert on the fresh
+build. Cadence (two tiers): the per-edit inner loop is build + smoke, plus
+`--two-client --seam-only` (~2s) after any change touching the SharkyNet
+seam (ops, shared KV, phase/start flow); the full `--two-client` (artifact
+frames) and `--filmstrip` run on the final build before first publish —
+they are independent, launch them concurrently (per-mode `report-*.json`
+files don't collide) — and again only after look/layout/mobile-affecting
+changes. Long runs background well: two-client's verdict file is
+consumable the moment `"seam"` lands (below); keep working while it runs.
 ```bash
-bun <skill>/scripts/playtest-gate.ts --html dist/index.html                # smoke, ~10s
-bun <skill>/scripts/playtest-gate.ts --html dist/index.html --two-client   # bus seam
-bun <skill>/scripts/playtest-gate.ts --html dist/index.html --filmstrip    # 3 viewports × drive
+bun <skill>/scripts/playtest-gate.ts --html dist/index.html                # smoke, ~7-10s
+bun <skill>/scripts/playtest-gate.ts --html dist/index.html --two-client [--seam-only]  # bus seam
+bun <skill>/scripts/playtest-gate.ts --html dist/index.html --filmstrip    # 3 viewports × drive, concurrent
 ```
 `--two-client` writes `dist/playtest/seam-verdict.json` in phases:
-`"running"` at start, `"seam"` once the hard asserts are decided (~11s,
-scene-weight-insensitive), `"final"` when the trailing artifact frames and
-any late page errors are in (~15s total on light scenes, ~50s on a
-double-pane 3D build; a crashed artifact phase still stamps a terminal
-`"final"` with `aborted:true`). A backgrounded run is consumable from that
-file as soon as `"seam"` lands.
+`"running"` at start, `"seam"` once the hard asserts are decided (~2-3s —
+the boot/KV waits are event-driven, scene-weight-insensitive), `"final"`
+when the trailing artifact frames and any late page errors are in (~13-15s
+measured on light 2D and vendored-3D builds; heavy scenes stretch the
+artifact tail, not the seam; a crashed artifact phase still stamps a
+terminal `"final"` with `aborted:true`). A backgrounded run is consumable
+from that file as soon as `"seam"` lands. `--seam-only` exits right on the
+seam verdict (~1-2s, stamps a terminal `"final"` with `seamOnly:true`) —
+the inner-loop variant; the full artifact run (which also re-checks zero
+page errors across the drive) stays the pre-publish gate.
 Smoke asserts zero page errors on the built bytes at one desktop viewport
 (repaint is reported as a warning — static-by-design screens exist); in a
 terminal-CLI session there is no preview tool, so smoke is the fastest
@@ -145,14 +165,18 @@ tab) and writes `host-frozen-pair.png` — both frames side-by-side with the
 guest countdown identical across the panes (the gate also warns when the
 guest pane stays pixel-static through the freeze; the frames are for eyes,
 no hard assertion).
-The gate finds a system Chrome/Edge by itself (`--chrome <path>` overrides;
-a browserless Linux box needs `bunx playwright install chromium` once).
+The gate finds a browser by itself: system Chrome/Edge, playwright's own
+registry, then known executable locations incl. a pre-provisioned
+`PLAYWRIGHT_BROWSERS_PATH` build (`--chrome <path>` overrides; a truly
+browserless Linux box needs `bunx playwright install chromium` once — the
+gate prints exactly that when nothing is found).
 `--filmstrip` drives the game for 10s (turns + camera drag) and frames it
 at three viewports (desktop / wide-retina / mobile 390×844@3x →
 `dist/playtest/filmstrip.html`) — the only ready-made mobile/retina
-frames among the shipped checks (~90-150s full; `--viewport mobile` alone
-runs ~50s — a scoped run can't see cross-viewport regressions and
-report.json records it as scoped). The desktop eye is the live preview
+frames among the shipped checks (the viewports run concurrently: ~25-40s
+full measured on 2D and vendored-3D builds; `--viewport mobile` alone
+~18s — a scoped run can't see cross-viewport regressions and report.json
+records it as scoped). The desktop eye is the live preview
 when one exists; these frames are the ready-made eyes everywhere else. A
 game exposing `window.__PLAYTEST__.focusScreenPos()` (normalized {x,y} of
 the main object) also gets the central-band assert (≥80% of samples).
@@ -163,7 +187,12 @@ until an eye reads them.
 (two players side by side, no credentials needed):
 ```bash
 bun <skill>/scripts/dev-serve.ts --html dist/index.html   # room at / (and /dev — same page)
+bun <skill>/scripts/dev-serve.ts --game my-game.html      # SOURCE mode: authoring loop
 ```
+SOURCE mode injects the runtime per request (same code path as build.ts),
+so the authoring loop is edit → reload — no command between; a contract
+violation renders as a loud 500 in the pane. The vm sim gate only runs in
+build.ts — build before the §2.5 checks and publish.
 
 **3.4 Author-time live play** — most bugs get caught here rather than in
 the checks (consistently measured): exploratory play reaches the
@@ -195,70 +224,34 @@ sync).
 **4. Publish — only AFTER the user's acceptance.** When you would normally
 call the game done, hand the user the dev-serve link **instead of
 publishing**, and stop there until they confirm.
-**New game — first publish** (you just built it; you know its look):
 ```bash
 bun <skill>/scripts/publish.ts --html dist/index.html --title "My Game" \
     --min-players 2 --max-players 8 \
     --cover-description "actual scene, palette, render style (low-poly / pixel / cel-shaded / …), mood — 1–3 sentences"
-# no stored session + no terminal? --request-code --email <addr> sends the
-# code; then re-run with --verify-code <code> --email <addr>.
 ```
-
-**Re-publish a code/logic change, look unchanged** (bug fix, tuning):
-```bash
-bun <skill>/scripts/publish.ts --html dist/index.html --title "My Game" \
-    --min-players 2 --max-players 8 \
-    --game-id <id>
-# no --cover-description → an existing cover is kept as-is
-# (a game with no cover yet still gets one backfilled server-side)
-```
-
-**Re-publish because the look changed** (new art / palette / scene):
-```bash
-bun <skill>/scripts/publish.ts --html dist/index.html --title "My Game" \
-    --min-players 2 --max-players 8 \
-    --game-id <id> \
-    --cover-description "the NEW look — scene, palette, style, mood"
-```
-
-Publishing goes to the signed-in account via the platform import endpoint;
-hosting = the permanent /play route. The cover is a generated 16:9 image —
-server-side, best-effort, appears seconds after publish; no imposed house
-style; the title is drawn into the art. A first publish always gets a
-cover — the description decides whether it shows the real game or a
-title-only guess; a re-publish regenerates only when a description is
-passed (gotcha 17 has the symptom map). Every publish rewrites the whole
-game row: title and min/max players come from THIS command each time.
-
-Credentials: the first publish on a machine asks for the user's sharky.gg
-account email and a 6-digit code sent to it (the email shown in their
-sharky.gg account settings); the session then lives in
-`~/.config/sharky-online/session.json`, auto-refreshes, and later publishes
-are zero-prompt. Games land in that user's own account. The email comes
-from the user, stated in this conversation — an email found in your
-environment/context (the machine's login identity) is routinely NOT the
-sharky.gg account email. publish hard-errors rather than accept a guessed
-one (no `--email` + no terminal = error), and an address with no sharky.gg
-account is rejected before any code is sent; `--create-account` lifts that
-only after the user explicitly confirms they want a NEW account under that
-email. No terminal for the code prompt? `--request-code --email <addr>`
-sends the code and exits; re-run with `--verify-code <code> --email <addr>`
-to sign in and publish in one go.
+Re-publish = the same command + `--game-id <id>` (omitting it creates a
+NEW game row and orphans the old link); omit `--cover-description` on a
+re-publish to keep the existing cover — pass it only when the look
+changed. Every publish rewrites the whole game row: title and min/max
+players come from THIS command each time. The first publish on a machine
+signs into the user's own sharky.gg account with an emailed 6-digit code —
+the email must come from the user, stated in this conversation (an address
+found in your environment is routinely NOT the account email; publish
+hard-errors rather than accept a guess). Read `references/publishing.md`
+BEFORE the first publish on a machine, for any credential / cover /
+hosting / sandbox-egress question, and on any publish error.
 
 **5. Verify the real room** (automated, 2 guest clients, no token needed):
 ```bash
 bun <skill>/scripts/room-test.ts --game-id <id>
 ```
+Launch it in the background the moment publish returns and compose the
+handoff message while it runs — nothing else blocks on it, and its
+RTT/sync numbers are the handoff payload: append them when the run lands
+(typical runs ~15-30s; the first room after a fresh publish can ride a
+~1min cold start, which the script retries through by itself).
 Then open `https://sharky.gg/game/<id>` — the game sits in the owner's
 account list; invite/guest join/room chrome all come from the platform.
-
-Skill updates: build.ts prints a short notice if a newer skill release
-exists (checked at most once a day, 1.5s timeout, silent otherwise) — for
-git-clone installs by comparing against origin/main, for git-less copies
-(ZIP download / vendored) via the `.release` stamp the distribution repo
-ships. It never updates anything itself — updating is the user's call
-(`git pull --ff-only`, or re-downloading for git-less copies, after they
-say yes).
 
 **6. Online two-client dev loop** against the published game:
 ```bash
@@ -281,38 +274,26 @@ bun <skill>/scripts/dev-serve.ts --html dist/index.html --game-id <id>
   player's `name` (the shim's `initPlayer` fills it from the platform's
   display_name), so a named roster renders straight from it.
 - Multiplayer QUALITY levers — read `references/hard-parts.md` before
-  designing any real-time genre: §0 presence rig is the settled seam
-  plumbing (self-echo/replay/throttle/ghost lifecycle/identity naming/lobby
-  legibility — don't re-derive it); ghost soft-contact buys back interaction feel with
-  zero authority cost; a `__SHARKY_RULES__` script buys server-arbitrated
+  designing any real-time genre, scoped by its top-of-file map: §0's
+  presence rig ships pre-assembled in `examples/skeleton.html` (don't
+  re-derive it — §0's facts say what each SEAM line protects); ghost
+  soft-contact (§1) buys back interaction feel with
+  zero authority cost; a `__SHARKY_RULES__` script (§2) buys server-arbitrated
   fairness (pickups, finishes, scoring) with the optimistic+reconcile
   pattern. Ghosting alone reads as "passable" — these levers push past it.
 - room-test.ts is the only automated signal that the published room actually
   syncs (2 guest clients, no token) — its numbers are what the user hears at
   handoff.
-- Read `references/gotchas.md` before debugging anything network-ish — every
-  known failure mode is listed there with its cause.
+- Debugging anything network-ish: match the symptom in the index at the top
+  of `references/gotchas.md` and read that section — every known failure
+  mode is listed with its cause. Read the file whole before a handoff, not
+  per incident.
 
 ## Known limits (v1, honest)
 
-- **Hosting**: the platform `/play` route (deployed 2026-07-03) hosts the
-  published single-file HTML permanently. Separate asset files still don't
-  execute from storage (text/plain + nosniff) — inline everything (that's
-  what the vendor mechanism is for). `--host preview` expires in ~30 min.
-- **Credentials**: publishing signs in with the user's sharky.gg account
-  email (OTP code) — an independent session chain that never touches their
-  browser login. The OTP email must be the one the sharky.gg account settings
-  show (Apple "Hide My Email" accounts: the relay address). The skill ships
-  zero secrets; the embedded anon key is the public browser-bundle value.
-  Operator direct-write mode exists behind an explicit `SHARKY_ENV_FILE`.
-- **Restricted-egress sandboxes** (e.g. Claude Code on the web): the default
-  domain allowlist blocks the platform, so publish/room-test die on their
-  first call. publish.ts preflights and prints the exact domains to allow
-  (`sharky.gg` incl. subdomains + `yhvgdxuwxyergytakxvn.supabase.co`);
-  claude.ai/code takes them under environment settings → Network access.
-  Session files live in the ephemeral container HOME, so each new web
-  session re-verifies by email once — never point `SHARKY_SESSION_FILE`
-  into the repo (that would commit login tokens).
+- Hosting, credential, and sandbox-egress limits live with the publish
+  workflow in `references/publishing.md` (single-file/inline hosting rule,
+  OTP session chain, domain allowlists for restricted sandboxes).
 - **Anti-cheat / hidden info**: the bus shim orders but does not judge. For
   server-side rules, replace the shim with game-specific authoritative
   callbacks (advanced mode — same contract as platform-generated games).

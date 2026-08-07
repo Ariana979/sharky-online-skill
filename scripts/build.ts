@@ -12,10 +12,11 @@
 //   await SharkyNet.ready(); use SharkyNet.send/on/setShared for ALL shared
 //   state; never open your own sockets.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import vm from 'node:vm'
+import { injectRuntime } from './inject.ts'
 
 const args: Record<string, string> = {}
 const argv = process.argv.slice(2)
@@ -24,50 +25,21 @@ for (let i = 0; i < argv.length; i++) {
 }
 const gamePath = args.game
 if (!gamePath) {
-  console.error('usage: bun build.ts --game <game.html> [--title T] [--min-players 2] [--max-players 8] [--out dist/index.html]')
+  console.error('usage: bun build.ts --game <game.html> [--title T] [--min-players 2] [--max-players 8] [--out dist/index.html] [--smoke]')
   process.exit(1)
 }
 
 const skillRoot = resolve(import.meta.dir, '..')
 const html = readFileSync(resolve(gamePath), 'utf8')
-const bridge = readFileSync(resolve(skillRoot, 'assets/bridge.js'), 'utf8')
-const net = readFileSync(resolve(skillRoot, 'assets/sharky-net.js'), 'utf8')
-const shim = readFileSync(resolve(skillRoot, 'assets/shim-game.template.js'), 'utf8')
-  .replaceAll('__TITLE__', (args.title || 'Untitled Sharky Game').replace(/'/g, "\\'"))
-  .replaceAll('__MIN_PLAYERS__', String(Number(args['min-players']) || 2))
-  .replaceAll('__MAX_PLAYERS__', String(Number(args['max-players']) || 8))
-
-// Basic guards on the AUTHORED game code (before vendor expansion): the game
-// must not carry its own network/game-config code.
-if (/__DELTA_GAME_CONFIG__/.test(html)) throw new Error('game HTML must not define __DELTA_GAME_CONFIG__ (the build injects the shim)')
-if (/new\s+WebSocket\s*\(/.test(html)) throw new Error('game HTML must not open raw WebSockets — use SharkyNet')
-
-// Vendor inlining: `/*__VENDOR:<name>__*/` inside a <script> is replaced with
-// assets/vendor/<name>.js — keeps games fully self-contained (no CDN).
-const htmlWithVendors = html.replace(/\/\*__VENDOR:([A-Za-z0-9._\-]+)__\*\//g, (_, name: string) => {
-  const p = resolve(skillRoot, 'assets/vendor', `${name}.js`)
-  const body = readFileSync(p, 'utf8')
-  console.log(`[build] inlined vendor ${name} (${body.length} bytes)`)
-  return body
+// Injection (contract guards, vendor expansion, runtime insertion) lives in
+// inject.ts, shared with dev-serve's --game authoring mode.
+const out = injectRuntime(html, {
+  skillRoot,
+  title: args.title,
+  minPlayers: Number(args['min-players']),
+  maxPlayers: Number(args['max-players']),
+  log: (line) => console.log(line),
 })
-// A placeholder left unexpanded (name chars outside [A-Za-z0-9._-]) would
-// ship as a dead comment and only surface as a runtime ReferenceError.
-if (/\/\*__VENDOR:/.test(htmlWithVendors)) {
-  throw new Error('unexpanded /*__VENDOR:<name>__*/ placeholder — vendor names take [A-Za-z0-9._-]')
-}
-
-const runtime = `<script>/* sharky-online runtime: bridge */\n${bridge}\n</script>\n` +
-  `<script>/* sharky-online runtime: sim shim (inert in browser) */\n${shim}\n</script>\n` +
-  `<script>/* sharky-online runtime: net API */\n${net}\n</script>\n`
-
-let out: string
-if (/<body[^>]*>/i.test(htmlWithVendors)) {
-  out = htmlWithVendors.replace(/<body[^>]*>/i, (m) => m + '\n' + runtime)
-} else if (/<script/i.test(htmlWithVendors)) {
-  out = htmlWithVendors.replace(/<script/i, runtime + '<script')
-} else {
-  out = runtime + htmlWithVendors
-}
 
 // --- sim-compatibility gate ---
 // Mirrors the platform sim's loader (verified against sim-service source):
@@ -146,6 +118,17 @@ writeFileSync(outPath, out, 'utf8')
 console.log(`[build] ${outPath} (${out.length} bytes) — game ${gamePath} + sharky runtime`)
 console.log(`[build] sim gate: ${gate.detail}`)
 
+// --smoke: chain the render smoke check onto the fresh build in this same
+// invocation — one inner-loop command instead of two (one bun startup, one
+// agent turn). Exit code: 0 only when build AND smoke both pass; the gate's
+// own stdout says which one failed.
+if ('smoke' in args) {
+  const gateArgs = [resolve(import.meta.dir, 'playtest-gate.ts'), '--html', outPath, '--out', join(dirname(outPath), 'playtest')]
+  if (args.chrome) gateArgs.push('--chrome', args.chrome)
+  const res = spawnSync(process.execPath, gateArgs, { stdio: 'inherit' })
+  if (res.status !== 0) process.exit(res.status ?? 1)
+}
+
 // --- skill self-update notice (fact-only; never updates anything) ---
 // Fires when this skill directory is a git clone of the distribution repo
 // (origin URL contains "sharky-online-skill"), or a git-less copy (ZIP /
@@ -180,13 +163,17 @@ async function skillUpdateNotice(): Promise<void> {
     if (origin.includes('sharky-online-skill')) {
       // git-clone install: exact sha compare against origin/main
       const localSha = git('rev-parse', 'HEAD')
+      // Stamp BEFORE the network attempt: a blocked/failed fetch must also
+      // wait out the 24h window — otherwise every build in a
+      // restricted-egress sandbox pays the full fetch timeout (measured
+      // ~1.6s per build, on the hottest command in the loop).
+      stamp()
       const resp = await fetch(DIST_REPO_API, {
         headers: { accept: 'application/vnd.github+json' },
         signal: AbortSignal.timeout(1500),
       })
       if (!resp.ok) return
       const remoteSha = String(((await resp.json()) as any)?.sha ?? '')
-      stamp()
       if (!remoteSha || remoteSha === localSha) return
       console.log(`[skill] distribution repo has a newer revision (local ${localSha.slice(0, 7)} ≠ origin/main ${remoteSha.slice(0, 7)})`)
       console.log(`[skill] updating is the user's call — ask first, then: git -C ${skillRoot} pull --ff-only`)
@@ -200,10 +187,10 @@ async function skillUpdateNotice(): Promise<void> {
     let local = ''
     try { local = readFileSync(join(skillRoot, '.release'), 'utf8').trim().split(/\s+/)[0] ?? '' } catch { return }
     if (!local) return
+    stamp() // before the fetch — same failed-fetch rationale as the git path
     const resp = await fetch(DIST_RAW_RELEASE, { signal: AbortSignal.timeout(1500) })
     if (!resp.ok) return
     const remote = (await resp.text()).trim().split(/\s+/)[0] ?? ''
-    stamp()
     if (!remote || remote === local) return
     console.log(`[skill] a newer skill release exists (this copy ${local.slice(0, 7)} ≠ latest ${remote.slice(0, 7)})`)
     console.log('[skill] this copy was installed without git — updating is the user\'s call: re-download https://github.com/Alterverse-tech/sharky-online-skill (or reinstall via git clone for one-command updates)')
