@@ -3,6 +3,30 @@
 Numbers are stable IDs, not positions — entries sit in topic sections, so
 a numeric hunt needs a text search, not a scroll.
 
+## Symptom index — match, then read that section only
+
+Debugging an incident, read the matching entry; read the whole file only
+before a handoff.
+
+- clients see zero state_updates after publish, all else "works" → 1a-1e
+- game dead only in production, fine locally → 1b / 1c (sim script errors)
+- page too big / models embedded → 1e (12MB sim fetch cap)
+- "multiplayer is broken" — friends land in separate rooms → 15b
+- start button swallows clicks for seconds / isHost() false at first → 15c
+- players() empty though clients joined → 13b (lazy initPlayer)
+- "both players respond to my keys" in two-pane testing → 13c (stranded keyup)
+- cover art changed (or appeared) after a logic-only re-publish → 17
+- ops dropped / send() returns false → 12 (rate budget; coalesce)
+- HTML served as text/plain / won't execute from storage → 2
+- guest join rejected → 4 (private game) / 6 (guest_id must be UUID)
+- reconnect storms / zombie room members → 10 (bootstrap postMessage once)
+- same account double-open = one seat → 11
+- background tab looks frozen → 13 (rAF freeze)
+- backgrounded dev-serve shows no output/URL → 18 (piped through a filter)
+- input direction wrong only after camera moves → 20 (essay: verification shape)
+- what checks must look like before handover → 16 (essay: verification shape)
+- how slow is the bus / design latency budget → Latency model (bottom)
+
 ## The sim sandbox (single most important section)
 
 1a. **The sim's code source is the `game_url` HTML.** The sim (colocated with
