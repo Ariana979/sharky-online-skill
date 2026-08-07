@@ -1,7 +1,7 @@
 {
   "status": "pending",
   "runId": "sharky-speedway-20260807-01",
-  "updatedAt": "2026-08-07T10:06:24.653Z",
+  "updatedAt": "2026-08-07T10:24:01.225Z",
   "message": "3 个基础模型：0 可预览、0 生成中、1 失败；0 个动作模型：0 可预览、0 生成中、0 失败。",
   "items": [
     {
@@ -13,7 +13,7 @@
       "progress": 100,
       "runtimeUrl": "",
       "clips": [],
-      "error": "BabelArk image generation failed (400): upstream status 400: invalid size '1:1': expected WIDTHxHEIGHT (e.g. 1024x1024) (request id: 20260807180621971328123U0XdzApH)"
+      "error": "BabelArk image generation failed (400): upstream status 400: invalid size '1:1': expected WIDTHxHEIGHT (e.g. 1024x1024) (request id: 2026080718235823299928Nt5Ugkv2)"
     },
     {
       "id": "boost-crystal",
@@ -41,7 +41,7 @@
   "failures": [
     {
       "id": "neon-kart",
-      "error": "BabelArk image generation failed (400): upstream status 400: invalid size '1:1': expected WIDTHxHEIGHT (e.g. 1024x1024) (request id: 20260807180621971328123U0XdzApH)"
+      "error": "BabelArk image generation failed (400): upstream status 400: invalid size '1:1': expected WIDTHxHEIGHT (e.g. 1024x1024) (request id: 2026080718235823299928Nt5Ugkv2)"
     }
   ]
 }
