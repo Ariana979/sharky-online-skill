@@ -1,13 +1,13 @@
 {
   "status": "failed",
-  "updatedAt": "2026-08-07T10:23:58.084Z",
+  "updatedAt": "2026-08-07T10:27:57.403Z",
   "jobs": [
     {
       "id": "neon-kart",
       "label": "Neon Circuit Kart",
       "status": "failed",
       "progress": 100,
-      "error": "BabelArk image generation failed (400): upstream status 400: invalid size '1:1': expected WIDTHxHEIGHT (e.g. 1024x1024) (request id: 2026080718235823299928Nt5Ugkv2)"
+      "error": "BabelArk image generation failed (400): upstream status 400: invalid size '1:1': expected WIDTHxHEIGHT (e.g. 1024x1024) (request id: 202608071827573575292960QeW35VA)"
     }
   ]
 }
