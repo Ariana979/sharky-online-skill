@@ -107,7 +107,7 @@ seam assembled in a full scene (world-event rounds, ghost lifecycle +
 out-state legibility, role-resolution-safe start).
 Vendored libs: put `/*__VENDOR:three-0.161.0.global.min__*/` inside a
 `<script>` tag and the build inlines `assets/vendor/<name>.js` — the
-placeholder name carries NO `.js` suffix (`ls assets/vendor/` to see what
+placeholder name carries NO `.js` suffix (`ls <skill>/assets/vendor/` to see what
 ships). Any `<name>.js` added to that directory inlines the same way
 (name chars A-Za-z0-9._-; an unexpanded placeholder fails the build) — the
 shipped list is just what's pre-bundled (an existing game's exact CDN build,

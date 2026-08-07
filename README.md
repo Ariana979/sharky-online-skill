@@ -32,6 +32,13 @@ git clone https://github.com/Alterverse-tech/sharky-online-skill ~/.claude/skill
 Per-project alternative: clone into the project's
 `.claude/skills/sharky-online/` instead.
 
+Prefer a zip? `bun scripts/package-skill.ts` builds
+`dist/sharky-online.zip` — a single `sharky-online/` folder that unzips
+straight into either skills directory above, and is also accepted by the
+claude.ai skill upload (Settings > Capabilities > Skills; uploaded
+skills serve claude.ai web/desktop and cloud sessions — Claude Code CLI
+reads the filesystem directories above, not the upload).
+
 Web-sandbox agents: the sandbox filesystem is ephemeral — vendor this
 repo into your project repository at `.claude/skills/sharky-online/`
 (copy or submodule) so it checks out together with the project.
