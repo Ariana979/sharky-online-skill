@@ -180,13 +180,17 @@ async function skillUpdateNotice(): Promise<void> {
     if (origin.includes('sharky-online-skill')) {
       // git-clone install: exact sha compare against origin/main
       const localSha = git('rev-parse', 'HEAD')
+      // Stamp BEFORE the network attempt: a blocked/failed fetch must also
+      // wait out the 24h window — otherwise every build in a
+      // restricted-egress sandbox pays the full fetch timeout (measured
+      // ~1.6s per build, on the hottest command in the loop).
+      stamp()
       const resp = await fetch(DIST_REPO_API, {
         headers: { accept: 'application/vnd.github+json' },
         signal: AbortSignal.timeout(1500),
       })
       if (!resp.ok) return
       const remoteSha = String(((await resp.json()) as any)?.sha ?? '')
-      stamp()
       if (!remoteSha || remoteSha === localSha) return
       console.log(`[skill] distribution repo has a newer revision (local ${localSha.slice(0, 7)} ≠ origin/main ${remoteSha.slice(0, 7)})`)
       console.log(`[skill] updating is the user's call — ask first, then: git -C ${skillRoot} pull --ff-only`)
@@ -200,10 +204,10 @@ async function skillUpdateNotice(): Promise<void> {
     let local = ''
     try { local = readFileSync(join(skillRoot, '.release'), 'utf8').trim().split(/\s+/)[0] ?? '' } catch { return }
     if (!local) return
+    stamp() // before the fetch — same failed-fetch rationale as the git path
     const resp = await fetch(DIST_RAW_RELEASE, { signal: AbortSignal.timeout(1500) })
     if (!resp.ok) return
     const remote = (await resp.text()).trim().split(/\s+/)[0] ?? ''
-    stamp()
     if (!remote || remote === local) return
     console.log(`[skill] a newer skill release exists (this copy ${local.slice(0, 7)} ≠ latest ${remote.slice(0, 7)})`)
     console.log('[skill] this copy was installed without git — updating is the user\'s call: re-download https://github.com/Alterverse-tech/sharky-online-skill (or reinstall via git clone for one-command updates)')
