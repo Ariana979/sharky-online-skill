@@ -10,6 +10,7 @@ game/
   tools/pack-assets.mjs         GLB → inlinable vendor file (single-file hosting)
   tools/race-probe.ts           win-path probe: finish / flag / restart
   tools/drive-probe.ts          drive-feel probe: throttle, wall cost, recovery
+  tools/relay-room-check.mjs    real-room check over raw relay sockets (no browser)
   asset-sourcing-plan.json      3d-assets sourcing gate (confirmed)
   animation-plan.json           frozen action plan (all runtime-procedural)
   regeneration-plan.json        asset run plan
@@ -139,3 +140,46 @@ bun scripts/publish.ts --html game/dist/index.html --title "Sharky Speedway" \
 
 Two people who each open the game card land in two *separate* rooms — playing
 together means one person opens it and shares the room's **Invite** link.
+
+Live: <https://sharky.gg/game/5e0e62b8-758b-4120-b7dc-79e2c1ff01dd>
+(`--game-id 5e0e62b8-758b-4120-b7dc-79e2c1ff01dd` on any re-publish; omitting it
+mints a NEW row and orphans that link.)
+
+### Running the platform scripts in a proxied sandbox
+
+`publish.ts` and `room-test.ts` default to bun, and **bun's `fetch` cannot
+traverse this sandbox's egress proxy** — every request dies with "socket
+connection was closed unexpectedly", while curl and Node reach the same hosts
+fine. Both scripts use only `node:` modules, so run them under Node instead
+(no TLS verification disabled, no proxy bypassed):
+
+```bash
+NODE_USE_ENV_PROXY=1 node --experimental-strip-types scripts/publish.ts ...
+```
+
+### Real-room verification
+
+`room-test.ts` drives two guest clients in Chromium. In this sandbox the
+headless browser has **no egress at all** — `example.com` resets the same way
+`sharky.gg` does, with or without `--proxy-server` — so that check cannot run
+here and its browser-side signal is unverified.
+
+`tools/relay-room-check.mjs` covers what can be verified without a browser: the
+relay handshake is just a `wss` URL with query params, so two guest sockets run
+straight from Node. It asserts the failure mode that actually follows a publish
+(gotchas 1a–1e) — sim warmup, ops applying, shared KV crossing between clients,
+the shared clock ticking once the room is playing, and `__SHARKY_RULES__`
+initialising *in the real sim*. Measured on the published build:
+
+```
+sim warmup       612ms
+state_updates    A=154  B=153
+shared KV        kvCount=2  cross-client visible=true
+shared clock     1s -> 7s over ~6s
+__SHARKY_RULES__ state.game initialised: ms/n/picks/fin
+relay ping       A avg=350ms min=279ms  B avg=765ms
+```
+
+It does not execute the game's rendering or input, so it complements
+`room-test.ts` rather than replacing it — run that one from a machine with a
+browser that can reach the network.
