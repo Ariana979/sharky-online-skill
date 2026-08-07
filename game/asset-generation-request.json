@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "schema": "shark-asset-generation-request",
+  "runId": "sharky-speedway-20260807-01",
+  "confirmedAt": "2026-08-07T09:44:46.000Z",
+  "assets": [
+    {
+      "id": "neon-kart",
+      "name": "Neon Circuit Kart",
+      "role": "player",
+      "assetKind": "vehicle",
+      "generator": "gemini_reference"
+    },
+    {
+      "id": "boost-crystal",
+      "name": "Turbo Boost Crystal",
+      "role": "collectible",
+      "assetKind": "prop",
+      "generator": "tripo"
+    },
+    {
+      "id": "track-barrier",
+      "name": "Neon Track Barrier",
+      "role": "hazard",
+      "assetKind": "prop",
+      "generator": "tripo"
+    }
+  ],
+  "actionJobs": []
+}

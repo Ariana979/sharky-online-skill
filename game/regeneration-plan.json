@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "runId": "sharky-speedway-20260807-01",
+  "startedAt": "2026-08-07T09:44:46.000Z",
+  "items": [
+    {
+      "id": "neon-kart",
+      "name": "Neon Circuit Kart",
+      "role": "player",
+      "source": "generated",
+      "actions": []
+    },
+    {
+      "id": "boost-crystal",
+      "name": "Turbo Boost Crystal",
+      "role": "collectible",
+      "source": "generated",
+      "actions": []
+    },
+    {
+      "id": "track-barrier",
+      "name": "Neon Track Barrier",
+      "role": "hazard",
+      "source": "generated",
+      "actions": []
+    }
+  ]
+}

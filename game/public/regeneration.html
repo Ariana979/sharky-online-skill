@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>3D 素材生成进度</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; }
+      body { margin: 0; overflow: hidden; background: #11141b; color: #f2eee6; font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif; }
+      .app { display: grid; grid-template-columns: 360px 1fr; width: 100%; height: 100%; }
+      aside { overflow: auto; border-right: 1px solid rgba(255,255,255,.14); background: #191d25; padding: 14px; }
+      h1 { margin: 0 0 8px; font-size: 18px; }
+      .note { margin: 0 0 14px; color: #b8bec8; font-size: 13px; line-height: 1.5; }
+      .item { width: 100%; margin: 0 0 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; padding: 10px; background: rgba(255,255,255,.05); color: #f2eee6; text-align: left; }
+      .item.ready { border-color: rgba(116, 200, 143, .7); }
+      .item.failed { border-color: rgba(213, 93, 93, .7); }
+      .item.active { background: rgba(229,183,108,.14); border-color: rgba(229,183,108,.7); }
+      .item strong, .item span, .item code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .item strong { font-size: 13px; }
+      .item span { margin-top: 4px; color: #aeb5c0; font-size: 12px; }
+      .item code { margin-top: 4px; color: #788391; font-size: 10px; }
+      .item.clip-item { width: calc(100% - 18px); margin-left: 18px; padding: 8px 10px; border-left-color: rgba(229,183,108,.42); background: rgba(8,10,14,.34); }
+      .item.clip-item strong { color: #d9c59f; font-size: 12px; }
+      .item.clip-item::before { content: "↳"; float: left; margin-right: 7px; color: #7e8794; }
+      progress { width: 100%; height: 8px; margin-top: 8px; accent-color: #e5b76c; }
+      main { position: relative; min-width: 0; }
+      #stage { position: absolute; inset: 0; }
+      canvas { display: block; width: 100%; height: 100%; }
+      .status { position: absolute; left: 14px; right: 14px; bottom: 14px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; padding: 12px; background: rgba(17,20,27,.84); color: #d8dde6; font-size: 13px; line-height: 1.5; }
+      .status b { color: #e5b76c; }
+      @media (max-width: 760px) { .app { grid-template-columns: 1fr; grid-template-rows: 42vh 58vh; } aside { order: 2; border-right: 0; border-top: 1px solid rgba(255,255,255,.14); } main { order: 1; } }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside>
+        <h1>素材生成进度</h1>
+        <p class="note">基础模型与角色动作模型会分别显示。只有 GLB 确实落入 public/generated-assets 后才可点击；动作会绑定基础模型并循环播放。</p>
+        <div id="list"></div>
+      </aside>
+      <main>
+        <div id="stage"></div>
+        <div class="status" id="status">等待生成开始。</div>
+      </main>
+    </div>
+    <script src="./regeneration-preview.bundle.js?v=1dea89893fb3"></script>
+  </body>
+</html>

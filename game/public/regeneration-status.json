@@ -1,0 +1,47 @@
+{
+  "status": "pending",
+  "runId": "sharky-speedway-20260807-01",
+  "updatedAt": "2026-08-07T10:06:24.653Z",
+  "message": "3 个基础模型：0 可预览、0 生成中、1 失败；0 个动作模型：0 可预览、0 生成中、0 失败。",
+  "items": [
+    {
+      "id": "neon-kart",
+      "name": "Neon Circuit Kart",
+      "role": "player",
+      "source": "generated",
+      "status": "failed",
+      "progress": 100,
+      "runtimeUrl": "",
+      "clips": [],
+      "error": "BabelArk image generation failed (400): upstream status 400: invalid size '1:1': expected WIDTHxHEIGHT (e.g. 1024x1024) (request id: 20260807180621971328123U0XdzApH)"
+    },
+    {
+      "id": "boost-crystal",
+      "name": "Turbo Boost Crystal",
+      "role": "collectible",
+      "source": "generated",
+      "status": "pending",
+      "progress": 0,
+      "runtimeUrl": "",
+      "clips": [],
+      "error": ""
+    },
+    {
+      "id": "track-barrier",
+      "name": "Neon Track Barrier",
+      "role": "hazard",
+      "source": "generated",
+      "status": "pending",
+      "progress": 0,
+      "runtimeUrl": "",
+      "clips": [],
+      "error": ""
+    }
+  ],
+  "failures": [
+    {
+      "id": "neon-kart",
+      "error": "BabelArk image generation failed (400): upstream status 400: invalid size '1:1': expected WIDTHxHEIGHT (e.g. 1024x1024) (request id: 20260807180621971328123U0XdzApH)"
+    }
+  ]
+}

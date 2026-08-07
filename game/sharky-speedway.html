@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<title>Sharky Speedway — multiplayer neon kart racing</title>
+<style>
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070f;
+    font-family:ui-rounded,system-ui,-apple-system,sans-serif;color:#e2e8f0;
+    -webkit-user-select:none;user-select:none;touch-action:none}
+  #scene{position:absolute;inset:0}
+  #labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+  .label{position:absolute;transform:translate(-50%,-100%);font:11px/1.5 ui-monospace,monospace;
+    white-space:nowrap;background:rgba(2,6,23,.7);border-radius:8px;padding:1px 8px;
+    border:1px solid rgba(148,163,184,.25)}
+
+  #hud{position:absolute;top:max(10px,env(safe-area-inset-top));left:10px;
+    font:12px/1.7 ui-monospace,monospace;background:rgba(2,6,23,.62);
+    border:1px solid #1e293b;border-radius:12px;padding:8px 12px;min-width:132px}
+  #hud b{font-size:19px;color:#67e8f9;font-weight:800}
+  #hud .row{display:flex;justify-content:space-between;gap:14px}
+  #hud .dim{color:#94a3b8}
+
+  #speedo{position:absolute;right:12px;bottom:max(14px,env(safe-area-inset-bottom));
+    text-align:right;font:700 13px/1.2 ui-monospace,monospace;color:#94a3b8}
+  #speedo .kmh{font-size:40px;color:#e2e8f0;letter-spacing:-1px}
+  #boostbar{width:132px;height:8px;margin-top:7px;border-radius:99px;
+    background:rgba(148,163,184,.2);overflow:hidden}
+  #boostfill{height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#22d3ee,#f472b6);
+    transition:width .12s linear}
+
+  #banner{position:absolute;left:0;right:0;top:22%;text-align:center;font-size:min(9vw,40px);
+    font-weight:800;text-shadow:0 2px 22px #000;opacity:0;transition:opacity .3s;pointer-events:none}
+  #countdown{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;
+    font-size:min(30vw,180px);font-weight:900;color:#fff;text-shadow:0 0 60px #22d3ee,0 6px 30px #000;
+    opacity:0;transition:opacity .18s}
+
+  .panel{background:#0b1220;border:1px solid #1e293b;border-radius:18px;padding:24px 30px;
+    text-align:center;min-width:min(320px,86vw);max-width:min(440px,90vw);
+    box-shadow:0 24px 70px rgba(0,0,0,.6)}
+  #lobby{position:absolute;inset:0;display:grid;place-items:center;background:rgba(3,7,18,.72);
+    backdrop-filter:blur(3px)}
+  #lobby h1{margin:0 0 2px;font-size:30px;letter-spacing:1px;
+    background:linear-gradient(90deg,#22d3ee,#f472b6);-webkit-background-clip:text;
+    background-clip:text;color:transparent}
+  #lobby .sub{color:#94a3b8;font-size:12px;margin-bottom:16px}
+  #roster{font:13px/1.9 ui-monospace,monospace;margin:6px 0 4px;min-height:2em}
+  #roster .you{color:#67e8f9}
+  #hint{font-size:12px;color:#94a3b8;margin:8px 0 16px}
+  button{padding:13px 38px;font-size:17px;border-radius:12px;border:0;background:#22d3ee;
+    color:#062c33;font-weight:800;cursor:pointer;font-family:inherit}
+  button:disabled{background:#1e293b;color:#64748b;cursor:default}
+  #keys{margin-top:16px;font-size:11px;color:#64748b;line-height:1.8}
+  kbd{background:#1e293b;border:1px solid #334155;border-radius:5px;padding:1px 6px;
+    font:11px ui-monospace,monospace;color:#cbd5e1}
+
+  #result{position:absolute;inset:0;display:grid;place-items:center;background:rgba(3,7,18,.72)}
+  #result h2{margin:0 0 4px;font-size:24px}
+  #board{font:13px/1.95 ui-monospace,monospace;margin:12px 0 18px;text-align:left}
+  #board .me{color:#67e8f9;font-weight:700}
+  #board .pos{display:inline-block;width:2.2em;color:#94a3b8}
+  #board .t{float:right;color:#94a3b8;padding-left:18px}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="labels"></div>
+
+<div id="hud">connecting…</div>
+
+<div id="speedo">
+  <div><span class="kmh" id="kmh">0</span> km/h</div>
+  <div id="boostbar"><div id="boostfill"></div></div>
+</div>
+
+<div id="banner"></div>
+<div id="countdown"></div>
+
+<div id="result" hidden><div class="panel">
+  <h2 id="result-title">RESULTS</h2>
+  <div id="board"></div>
+  <button id="round-btn">NEXT RACE</button>
+</div></div>
+
+<div id="lobby"><div class="panel">
+  <h1>SHARKY SPEEDWAY</h1>
+  <div class="sub">3 laps · neon circuit · up to 8 karts</div>
+  <div id="roster">connecting…</div>
+  <div id="hint"></div>
+  <button id="start-btn" disabled>connecting…</button>
+  <div id="keys">
+    <kbd>W</kbd>/<kbd>↑</kbd> throttle · <kbd>S</kbd>/<kbd>↓</kbd> brake<br>
+    <kbd>A</kbd><kbd>D</kbd>/<kbd>←</kbd><kbd>→</kbd> steer · <kbd>Shift</kbd> drift<br>
+    grab <span style="color:#67e8f9">boost crystals</span>, dodge the barriers
+  </div>
+</div></div>
+
+<script>/*__VENDOR:three-0.161.0.global.min__*/</script>
+<script>/*__VENDOR:gltf-loader-0.161.0.global.min__*/</script>
+<script>/*__VENDOR:speedway-assets__*/</script>
+
+<script>
+/* ——— SEAM: authoritative rules (hard-parts §2) ———
+   PURE logic: no DOM, no SharkyNet, no timers, deterministic, and carrying NO
+   `typeof SharkyNet` guard — this script EXISTS to run inside the platform sim,
+   where it becomes the referee (build.ts fails the build if a guard stops it
+   from assigning). Browsers run the identical code as an optimistic preview;
+   clients reconcile from net.game().
+
+   It arbitrates the two outcomes that must not diverge under mixed latency:
+   contested crystal pickups (first-claim by SENDER time inside an 800ms
+   window, so the lowest-RTT player does not simply win every photo finish)
+   and the finishing order (ranked on shared-clock race time, not arrival
+   order). State stays small — it rides every state_update. */
+window.__SHARKY_RULES__ = {
+  init: function (g) { g.ms = 0; g.n = 0; g.picks = {}; g.fin = []; },
+  onTick: function (g, dt) {
+    g.ms += dt * 1000;
+    // crystals come back ~12s after they were taken, so laps 2 and 3 still
+    // have something to fight over. Bounded state: at most one entry per id.
+    var p = g.picks;
+    for (var k in p) { if (p[k] && g.ms - p[k].a > 12000) delete p[k]; }
+  },
+  onOp: function (g, op, uid) {
+    if (!op || typeof op !== 'object') return;
+    if (op.k === 'race') {                       // new race: reset the round's ledger
+      var n = op.n | 0;
+      if (n > g.n) { g.n = n; g.picks = {}; g.fin = []; }
+      return;
+    }
+    if ((op.n | 0) !== g.n) return;              // round-stamped; pose streams fall out here
+    if (op.k === 'pick') {
+      var id = String(op.id || '');
+      if (!id) return;
+      var t = Number(op.__t) || 0, cur = g.picks[id];
+      if (!cur) { g.picks[id] = { u: uid, t: t, a: g.ms, o: g.ms + 800 }; }
+      else if (g.ms <= cur.o && t && cur.t && t < cur.t) { cur.u = uid; cur.t = t; }
+      return;
+    }
+    if (op.k === 'fin') {
+      for (var i = 0; i < g.fin.length; i++) { if (g.fin[i].u === uid) return; }
+      if (g.fin.length >= 8) return;
+      g.fin.push({ u: uid, ms: Number(op.ms) || 0, t: Number(op.__t) || 0 });
+      g.fin.sort(function (a, b) { return (a.ms - b.ms) || (a.t - b.t); });
+      return;
+    }
+  }
+};
+</script>
+
+<script>
+(async function () {
+  // SEAM, contract rule 5: no-op inside the platform sim sandbox. An unhandled
+  // rejection here kills the room session (gotcha 1c).
+  if (typeof SharkyNet === 'undefined') return;
+  const net = await SharkyNet.ready();
+
+  const $ = (id) => document.getElementById(id);
+  const hud = $('hud'), banner = $('banner'), countdownEl = $('countdown'),
+        lobby = $('lobby'), roster = $('roster'), hint = $('hint'), startBtn = $('start-btn'),
+        resultBox = $('result'), resultTitle = $('result-title'), board = $('board'),
+        roundBtn = $('round-btn'), labelBox = $('labels'), kmhEl = $('kmh'),
+        boostFill = $('boostfill');
+
+  /* ═══════════════ tuning (TASTE) ═══════════════ */
+  const LAPS = 3;
+  const HALF_W = 9;                // road half width
+  const CAR_R = 1.15;              // gameplay collision radius (never the mesh bounds)
+  const MAX_SPEED = 52, BOOST_SPEED = 82, REVERSE_SPEED = 14;
+  // WALL_SCRUB is a rate, so full throttle against the wall settles where
+  // ACCEL/WALL_SCRUB balances (~28 u/s ≈ 90 km/h): a clear penalty against the
+  // racing line, fully recoverable the moment you steer off it. Set it much
+  // lower and the wall becomes a rail that is FASTER than driving the corner.
+  const ACCEL = 27, BRAKE = 52, DRAG = 0.55, WALL_SCRUB = 0.95;
+  const TURN = 2.05;
+  const GRIP = 9.0, DRIFT_GRIP = 2.8;
+  const BOOST_TIME = 1.9;          // seconds of boost per crystal
+  const COUNTDOWN = 4;             // seconds from race op to GO
+
+  /* ═══════════════ identity helpers (SEAM §0 fact 7) ═══════════════
+     Names live in net.players()[uid].name and arrive/update via the
+     'players' event; op.__tag is transport, never identity. A scoreboard
+     outlives presence, so it reads through a uid → name cache. */
+  const nameCache = {};
+  const nameOf = (uid) => {
+    const p = net.players()[uid];
+    if (p && p.name) nameCache[uid] = p.name;
+    return nameCache[uid] || String(uid).slice(0, 5);
+  };
+  // golden-angle spread: adjacent uids ('local-p1'/'p2', 'guest-1'/'guest-2')
+  // must not land on near-identical hues, which is exactly what local testing
+  // produces with a plain modulo.
+  const hueOf = (uid) => {
+    let h = 2166136261;
+    for (const c of String(uid)) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+    return (h * 137.508) % 360;
+  };
+  const mulberry32 = (a) => () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  /* ═══════════════ SEAM: the shared world clock (§0 fact 6) ═══════════════
+     Every timed thing in the room — the countdown, the race timer, lap times —
+     is anchored to state.clock, never to performance.now(): the page clock's
+     epoch is each browser's own load moment, so a locally-timed countdown runs
+     at a different phase on every screen.
+     NTP-style anchor: offset = MAX sample ever seen (the fastest-delivered
+     packet sits closest to true room time); advance on local monotonic time so
+     network jitter never lurches the world; re-baseline only on a large
+     BACKWARD move, which is a sim rewarm rather than jitter. */
+  let clockOffset = null;
+  function noteClock(st) {
+    if (!st || typeof st.clock !== 'number') return;
+    const off = st.clock - performance.now() / 1000;
+    if (clockOffset === null || off > clockOffset) clockOffset = off;
+    else if (clockOffset - off > 30) clockOffset = off;   // room reborn: new clock domain
+  }
+  const clockReady = () => clockOffset !== null;
+  const sharedNow = () => (clockOffset === null ? 0 : performance.now() / 1000 + clockOffset);
+
+  /* ═══════════════ track (TASTE) ═══════════════ */
+  const TRACK_PTS = [
+    [   0, 0,  150], [  92,  5,  118], [ 141,  7,   38], [ 118,  2,  -44],
+    [  58,  0,  -92], [ -12,  7, -122], [ -84,  9,  -96], [-124,  3,  -28],
+    [-101,  0,   46], [ -54,  0,  104],
+  ].map((p) => new THREE.Vector3(p[0], p[1], p[2]));
+  const curve = new THREE.CatmullRomCurve3(TRACK_PTS, true, 'catmullrom', 0.5);
+  const N = 900;                                    // centerline samples
+  const CP = [], CT = [], CN = [];                  // point / tangent / left-normal
+  for (let i = 0; i < N; i++) {
+    const u = i / N;
+    CP.push(curve.getPointAt(u));
+    const t = curve.getTangentAt(u).setY(0).normalize();
+    CT.push(t);
+    CN.push(new THREE.Vector3(-t.z, 0, t.x));       // left of travel
+  }
+  const TRACK_LEN = curve.getLength();
+
+  // Nearest-sample query. A windowed search around the last index keeps this
+  // O(1) per car per frame and makes progress well-behaved on a self-crossing
+  // course; the full scan is only for spawns and resets.
+  function locate(x, z, hint) {
+    let best = -1, bestD = Infinity;
+    const scan = (from, to) => {
+      for (let k = from; k <= to; k++) {
+        const i = ((k % N) + N) % N;
+        const dx = x - CP[i].x, dz = z - CP[i].z;
+        const d = dx * dx + dz * dz;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+    };
+    if (hint >= 0) scan(hint - 26, hint + 26); else scan(0, N - 1);
+    if (bestD > 900 && hint >= 0) { bestD = Infinity; best = -1; scan(0, N - 1); }
+    const i = best;
+    const dx = x - CP[i].x, dz = z - CP[i].z;
+    return { i, u: i / N, lat: dx * CN[i].x + dz * CN[i].z, y: CP[i].y };
+  }
+  // world position of a (u, lateral) course coordinate
+  function atCourse(u, lat, out) {
+    const i = ((Math.round(u * N) % N) + N) % N;
+    const p = CP[i], n = CN[i];
+    return (out || new THREE.Vector3()).set(p.x + n.x * lat, p.y, p.z + n.z * lat);
+  }
+
+  /* ═══════════════ renderer + scene (TASTE) ═══════════════ */
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x05070f);
+  scene.fog = new THREE.Fog(0x05070f, 110, 300);
+  const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.3, 900);
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  $('scene').appendChild(renderer.domElement);
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  scene.add(new THREE.HemisphereLight(0x9fd4ff, 0x2a1440, 1.35));
+  const sun = new THREE.DirectionalLight(0xfff0e0, 1.25);
+  sun.position.set(60, 120, 30);
+  scene.add(sun);
+  const rimLight = new THREE.DirectionalLight(0xff5fd0, 0.5);
+  rimLight.position.set(-70, 40, -60);
+  scene.add(rimLight);
+
+  // sky dome + starfield + a distant skyline, so the circuit reads as a place
+  // rather than a ribbon in a void (and so speed has something to sweep past)
+  {
+    const cvs = document.createElement('canvas');
+    cvs.width = 8; cvs.height = 256;
+    const c2 = cvs.getContext('2d');
+    const grd = c2.createLinearGradient(0, 0, 0, 256);
+    grd.addColorStop(0.00, '#04060f');
+    grd.addColorStop(0.55, '#0a1030');
+    grd.addColorStop(0.82, '#2a1352');
+    grd.addColorStop(1.00, '#5b1e63');
+    c2.fillStyle = grd;
+    c2.fillRect(0, 0, 8, 256);
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const dome = new THREE.Mesh(
+      new THREE.SphereGeometry(620, 24, 20),
+      new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false })
+    );
+    scene.add(dome);
+
+    const g = new THREE.BufferGeometry();
+    const pos = new Float32Array(900 * 3);
+    const r = mulberry32(7);
+    for (let i = 0; i < 900; i++) {
+      const th = r() * Math.PI * 2, ph = Math.acos(r() * 0.85 + 0.1), R = 560;
+      pos[i * 3] = Math.sin(ph) * Math.cos(th) * R;
+      pos[i * 3 + 1] = Math.abs(Math.cos(ph)) * R * 0.7 + 40;
+      pos[i * 3 + 2] = Math.sin(ph) * Math.sin(th) * R;
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({
+      color: 0xcbd9ff, size: 2.1, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.85,
+    })));
+
+    // skyline ring — flat boxes with lit crowns, far outside the fog's reach
+    const city = new THREE.Group();
+    const towerGeo = new THREE.BoxGeometry(1, 1, 1);
+    const towerMat = new THREE.MeshBasicMaterial({ color: 0x0e1430, fog: false });
+    const crownMats = [0x22d3ee, 0xf472b6, 0x818cf8].map((c) => new THREE.MeshBasicMaterial({ color: c, fog: false }));
+    const cr = mulberry32(31337);
+    for (let i = 0; i < 96; i++) {
+      const a = (i / 96) * Math.PI * 2 + cr() * 0.03;
+      const R = 380 + cr() * 130;
+      const h = 24 + cr() * 130, w = 14 + cr() * 22;
+      const x = Math.cos(a) * R, z = Math.sin(a) * R;
+      const t = new THREE.Mesh(towerGeo, towerMat);
+      t.position.set(x, h / 2 - 14, z);
+      t.scale.set(w, h, w);
+      t.lookAt(0, t.position.y, 0);
+      city.add(t);
+      const crown = new THREE.Mesh(towerGeo, crownMats[i % 3]);
+      crown.position.set(x, h - 14, z);
+      crown.scale.set(w * 1.02, 1.6, w * 1.02);
+      crown.rotation.copy(t.rotation);
+      city.add(crown);
+    }
+    scene.add(city);
+  }
+
+  // road ribbon + painted centre dashes + neon side walls
+  {
+    const road = new THREE.BufferGeometry();
+    const rp = [], ruv = [], idx = [];
+    for (let i = 0; i <= N; i++) {
+      const j = i % N, p = CP[j], n = CN[j];
+      rp.push(p.x + n.x * HALF_W, p.y, p.z + n.z * HALF_W);
+      rp.push(p.x - n.x * HALF_W, p.y, p.z - n.z * HALF_W);
+      ruv.push(0, i / 16, 1, i / 16);
+      if (i < N) {
+        const a = i * 2;
+        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    }
+    road.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3));
+    road.setAttribute('uv', new THREE.Float32BufferAttribute(ruv, 2));
+    road.setIndex(idx);
+    road.computeVertexNormals();
+    scene.add(new THREE.Mesh(road, new THREE.MeshStandardMaterial({
+      color: 0x272f47, roughness: 0.9, metalness: 0.08, side: THREE.DoubleSide,
+    })));
+
+    // ground glow slab under the road so the circuit reads against the void
+    const skirt = new THREE.BufferGeometry();
+    const sp = [], sidx = [];
+    for (let i = 0; i <= N; i++) {
+      const j = i % N, p = CP[j], n = CN[j], W = HALF_W + 12;
+      sp.push(p.x + n.x * W, p.y - 0.6, p.z + n.z * W);
+      sp.push(p.x - n.x * W, p.y - 0.6, p.z - n.z * W);
+      if (i < N) { const a = i * 2; sidx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    }
+    skirt.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+    skirt.setIndex(sidx);
+    skirt.computeVertexNormals();
+    scene.add(new THREE.Mesh(skirt, new THREE.MeshBasicMaterial({
+      color: 0x0d1a3a, transparent: true, opacity: 0.75, side: THREE.DoubleSide,
+    })));
+
+    // neon walls — visual mass that DOES act solid (hard-parts §2.5)
+    for (const side of [1, -1]) {
+      const wp = [], widx = [];
+      for (let i = 0; i <= N; i++) {
+        const j = i % N, p = CP[j], n = CN[j];
+        const x = p.x + n.x * HALF_W * side, z = p.z + n.z * HALF_W * side;
+        wp.push(x, p.y, z, x, p.y + 1.5, z);
+        if (i < N) { const a = i * 2; widx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      }
+      const wg = new THREE.BufferGeometry();
+      wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
+      wg.setIndex(widx);
+      wg.computeVertexNormals();
+      scene.add(new THREE.Mesh(wg, new THREE.MeshBasicMaterial({
+        color: side > 0 ? 0x22d3ee : 0xf472b6, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+      })));
+    }
+
+    // kerbs — the single cheapest readability win: they say where the road
+    // ends a whole corner before the wall does
+    const kerbs = new THREE.Group();
+    // step × sample spacing ≈ segment length, so the blocks butt up into a
+    // continuous kerb instead of reading as litter scattered on the tarmac
+    const KERB_STEP = 5, SEG = TRACK_LEN / N;
+    const kerbGeo = new THREE.BoxGeometry(1.5, 0.12, KERB_STEP * SEG);
+    const kerbMats = [
+      new THREE.MeshBasicMaterial({ color: 0xf1f5f9 }),
+      new THREE.MeshBasicMaterial({ color: 0xef4444 }),
+    ];
+    for (let i = 0; i < N; i += KERB_STEP) {
+      for (const side of [1, -1]) {
+        const p = CP[i], n = CN[i];
+        const m = new THREE.Mesh(kerbGeo, kerbMats[(i / KERB_STEP | 0) % 2]);
+        m.position.set(p.x + n.x * (HALF_W - 0.75) * side, p.y + 0.06, p.z + n.z * (HALF_W - 0.75) * side);
+        m.rotation.y = Math.atan2(CT[i].x, CT[i].z);
+        kerbs.add(m);
+      }
+    }
+    scene.add(kerbs);
+
+    // roadside pylons — vertical rhythm streaming past is what makes speed
+    // legible; without them a fast kart on an empty plane looks slow
+    const pylons = new THREE.Group();
+    const poleGeo = new THREE.BoxGeometry(0.35, 6.5, 0.35);
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x1b2436, roughness: 0.6, metalness: 0.4 });
+    const lampGeo = new THREE.BoxGeometry(0.9, 0.5, 0.9);
+    const lampMats = [
+      new THREE.MeshBasicMaterial({ color: 0x67e8f9 }),
+      new THREE.MeshBasicMaterial({ color: 0xf9a8d4 }),
+    ];
+    for (let i = 0; i < N; i += 34) {
+      for (const side of [1, -1]) {
+        const p = CP[i], n = CN[i], off = HALF_W + 2.2;
+        const x = p.x + n.x * off * side, z = p.z + n.z * off * side;
+        const pole = new THREE.Mesh(poleGeo, poleMat);
+        pole.position.set(x, p.y + 3.25, z);
+        pylons.add(pole);
+        const lamp = new THREE.Mesh(lampGeo, lampMats[side > 0 ? 0 : 1]);
+        lamp.position.set(x, p.y + 6.6, z);
+        pylons.add(lamp);
+      }
+    }
+    scene.add(pylons);
+
+    // dashed centre line
+    const dashes = new THREE.Group();
+    const dashGeo = new THREE.PlaneGeometry(0.5, 4.5);
+    const dashMat = new THREE.MeshBasicMaterial({ color: 0x5b6b96, transparent: true, opacity: 0.55 });
+    for (let i = 0; i < N; i += 18) {
+      const m = new THREE.Mesh(dashGeo, dashMat);
+      m.position.copy(CP[i]).setY(CP[i].y + 0.03);
+      m.rotation.x = -Math.PI / 2;
+      m.rotation.z = -Math.atan2(CT[i].z, CT[i].x) + Math.PI / 2;
+      dashes.add(m);
+    }
+    scene.add(dashes);
+
+    // start/finish line
+    const line = new THREE.Mesh(
+      new THREE.PlaneGeometry(HALF_W * 2, 2.4),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 })
+    );
+    line.position.copy(CP[0]).setY(CP[0].y + 0.05);
+    line.rotation.x = -Math.PI / 2;
+    line.rotation.z = -Math.atan2(CT[0].z, CT[0].x) + Math.PI / 2;
+    scene.add(line);
+  }
+
+  /* ═══════════════ GLB assets (3d-assets skill) ═══════════════
+     window.__SPEEDWAY_ASSETS__ is written by game/tools/pack-assets.mjs from
+     asset_manifest.json — the manifest is the semantic registry, so assets are
+     chosen by id, never by file name or folder order. Every slot keeps a
+     primitive fallback: the game stays playable when a GLB is missing or fails
+     to parse, and a missing GLB is visible in the HUD rather than silent. */
+  const ASSETS = (typeof window.__SPEEDWAY_ASSETS__ === 'object' && window.__SPEEDWAY_ASSETS__) || {};
+  const models = {};
+  let assetNote = '';
+  async function loadModels() {
+    const ids = Object.keys(ASSETS);
+    if (!ids.length) { assetNote = 'primitive'; return; }
+    const loader = new THREE.GLTFLoader();
+    const load = (url) => new Promise((res, rej) => loader.load(url, res, undefined, rej));
+    let ok = 0;
+    for (const id of ids) {
+      try {
+        const gltf = await load(ASSETS[id].url);
+        models[id] = gltf.scene;
+        ok++;
+      } catch (e) { /* falls back to primitive geometry below */ }
+    }
+    assetNote = ok === ids.length ? 'GLB' : ok + '/' + ids.length + ' GLB';
+  }
+
+  // Normalize any GLB the same way: scale to a target length, centre it on X/Z,
+  // sit the bottom on y=0, then apply the ONE audited orientation calibration.
+  // Nothing here guesses a facing from engine convention — an unaudited asset
+  // is calibrated by 0 and stays visibly wrong rather than silently wrong.
+  function instantiate(id, targetLen, axis) {
+    const src = models[id];
+    if (!src) return null;
+    const root = new THREE.Group();
+    const vis = src.clone(true);
+    const yaw = (ASSETS[id] && ASSETS[id].orientation && Number(ASSETS[id].orientation.calibrationYawDegrees)) || 0;
+    vis.rotation.y = yaw * Math.PI / 180;
+    vis.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(vis);
+    const size = new THREE.Vector3(); box.getSize(size);
+    const span = axis === 'x' ? size.x : axis === 'y' ? size.y : size.z;
+    const s = span > 1e-4 ? targetLen / span : 1;
+    vis.scale.multiplyScalar(s);
+    vis.updateMatrixWorld(true);
+    const box2 = new THREE.Box3().setFromObject(vis);
+    const c = new THREE.Vector3(); box2.getCenter(c);
+    vis.position.x -= c.x; vis.position.z -= c.z; vis.position.y -= box2.min.y;
+    root.add(vis);
+    return root;
+  }
+
+  /* ——— procedural kart fallback. Authored, not inferred: the mesh is BUILT
+     nose-first along +Z, so its forward axis is a construction fact. ——— */
+  function makeKart(uid) {
+    const g = new THREE.Group();
+    const hue = hueOf(uid) / 360;
+    const bodyCol = new THREE.Color().setHSL(hue, 0.72, 0.52);
+    const glowCol = new THREE.Color().setHSL((hue + 0.5) % 1, 0.9, 0.62);
+    const body = new THREE.MeshStandardMaterial({ color: bodyCol, roughness: 0.35, metalness: 0.55 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x11161f, roughness: 0.7, metalness: 0.3 });
+    const neon = new THREE.MeshBasicMaterial({ color: glowCol });
+    const chrome = new THREE.MeshStandardMaterial({ color: 0xc8d4e6, roughness: 0.2, metalness: 0.95 });
+    const add = (geo, mat, x, y, z, rx, ry, rz) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry; if (rz) m.rotation.z = rz;
+      g.add(m); return m;
+    };
+    // The nose is a 4-sided cone laid down along +Z. The rotation is baked into
+    // the GEOMETRY, in call order, on purpose: object-level Euler angles
+    // compose as Rx·Ry·Rz, so setting rotation.x AND rotation.z here tips the
+    // tip off-axis into a visibly crooked wedge instead of pointing forward.
+    const noseGeo = new THREE.ConeGeometry(0.62, 1.7, 4).rotateY(Math.PI / 4).rotateX(Math.PI / 2);
+    noseGeo.scale(1.25, 0.62, 1);                                                                // flatten into a wedge
+    add(new THREE.BoxGeometry(1.5, 0.34, 2.4), body, 0, 0.46, -0.15);                            // floor pan
+    add(noseGeo, body, 0, 0.44, 1.75);
+    add(new THREE.BoxGeometry(1.34, 0.07, 0.42), body, 0, 0.3, 2.35);                            // front wing
+    add(new THREE.BoxGeometry(0.9, 0.07, 0.09), neon, 0, 0.56, 2.3);                             // headlight strip
+    add(new THREE.BoxGeometry(0.2, 0.2, 1.7), neon, 0.78, 0.44, -0.1);                           // side blades
+    add(new THREE.BoxGeometry(0.2, 0.2, 1.7), neon, -0.78, 0.44, -0.1);
+    add(new THREE.BoxGeometry(0.82, 0.36, 0.9), dark, 0, 0.8, 0.1);                              // cockpit
+    add(new THREE.TorusGeometry(0.4, 0.07, 8, 14, Math.PI), chrome, 0, 0.92, -0.44);             // roll hoop
+    add(new THREE.BoxGeometry(0.78, 0.44, 0.7), dark, 0, 0.72, -1.1);                            // engine block
+    add(new THREE.BoxGeometry(1.62, 0.08, 0.44), body, 0, 1.12, -1.48);                          // rear wing
+    add(new THREE.BoxGeometry(0.08, 0.38, 0.36), dark, 0.66, 0.93, -1.48);
+    add(new THREE.BoxGeometry(0.08, 0.38, 0.36), dark, -0.66, 0.93, -1.48);
+    add(new THREE.BoxGeometry(0.46, 0.1, 0.08), neon, 0, 0.68, -1.5);                            // tail light
+    const tyre = new THREE.CylinderGeometry(0.42, 0.42, 0.34, 14);
+    const tyreMat = new THREE.MeshStandardMaterial({ color: 0x0b0e14, roughness: 0.95 });
+    const wheels = [];
+    for (const wx of [0.92, -0.92]) for (const wz of [1.05, -1.05]) {
+      wheels.push(add(tyre, tyreMat, wx, 0.42, wz, 0, 0, Math.PI / 2));
+    }
+    g.userData.wheels = wheels;
+    g.userData.procedural = true;
+    return g;
+  }
+
+  function makeCrystalMesh() {
+    const glb = instantiate('boost-crystal', 2.0, 'y');
+    if (glb) return glb;
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.95, 0),
+      new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x0e7490, roughness: 0.15, metalness: 0.4, transparent: true, opacity: 0.92 })));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.07, 8, 20),
+      new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.25, metalness: 0.9 }));
+    ring.rotation.x = Math.PI / 2;
+    g.add(ring);
+    return g;
+  }
+  function makeBarrierMesh() {
+    const glb = instantiate('track-barrier', 3.0, 'x');
+    if (glb) return glb;
+    // Footprint stays close to the circular collider below (BARRIER_R): a
+    // visual much narrower than its collider stops karts on empty air, which
+    // reads as broken exactly the way a pass-through solid does (§2.5).
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.1, 1.6),
+      new THREE.MeshStandardMaterial({ color: 0x2a2f3a, roughness: 0.85 })).translateY(0.55));
+    const top = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.14, 1.65),
+      new THREE.MeshBasicMaterial({ color: 0x22d3ee }));
+    top.position.y = 1.15;
+    g.add(top);
+    for (let i = -1; i <= 1; i++) {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.95, 0.06),
+        new THREE.MeshBasicMaterial({ color: 0xf472b6 }));
+      s.position.set(i * 0.72, 0.55, 0.83);
+      s.rotation.z = 0.35;
+      g.add(s);
+    }
+    return g;
+  }
+  function makeCarVisual(uid) {
+    const glb = instantiate('neon-kart', 3.6, 'z');
+    if (!glb) return makeKart(uid);
+    // tint the GLB body so eight karts stay tellable apart on one screen
+    const col = new THREE.Color().setHSL(hueOf(uid) / 360, 0.7, 0.55);
+    glb.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      o.material = o.material.clone();
+      if (o.material.color) o.material.color.lerp(col, 0.45);
+      if (o.material.emissive) o.material.emissive.lerp(col, 0.3);
+    });
+    return glb;
+  }
+
+  await loadModels();
+
+  /* ═══════════════ course furniture ═══════════════ */
+  // Barriers are fixed across every race (a learnable course); crystals are
+  // re-seeded per race number — both are DERIVED from a seed, so they cost
+  // zero traffic and land identically on every client (§0 fact 8).
+  const BARRIER_R = 1.35;   // gameplay radius, sized to the mesh footprint
+  // A barrier whose blocked span (its radius + a kart's) can reach past the
+  // wall limit creates a pocket the wall pushes you back INTO every frame: the
+  // kart wedges and the race ends there (measured — 12s of full throttle with
+  // progress frozen at u=0.16). Capping the offset keeps a real gap on the
+  // outside AND a wide line on the inside, which is what makes them chicanes
+  // rather than traps.
+  const BARRIER_MAX_LAT = HALF_W - 2 * CAR_R - BARRIER_R - 1.75;
+  const BARRIERS = (() => {
+    const out = [], r = mulberry32(20260807);
+    for (let i = 0; i < 11; i++) {
+      const u = (i + 0.45) / 11 + (r() - 0.5) * 0.03;
+      const lat = (r() * 2 - 1) * BARRIER_MAX_LAT;
+      const p = atCourse(u, lat);
+      out.push({ x: p.x, y: p.y, z: p.z, u, r: BARRIER_R });
+    }
+    return out;
+  })();
+  const barrierGroup = new THREE.Group();
+  scene.add(barrierGroup);
+  for (const b of BARRIERS) {
+    const m = makeBarrierMesh();
+    m.position.set(b.x, b.y, b.z);
+    const i = ((Math.round(b.u * N) % N) + N) % N;
+    m.rotation.y = Math.atan2(CT[i].x, CT[i].z) + Math.PI / 2;
+    b.mesh = m;
+    barrierGroup.add(m);
+  }
+
+  const CRYSTAL_COUNT = 14;
+  function crystalsFor(n) {
+    const out = [], r = mulberry32(n * 9781 + 4242);
+    for (let i = 0; i < CRYSTAL_COUNT; i++) {
+      const u = ((i + 0.5) / CRYSTAL_COUNT + (r() - 0.5) * 0.02 + 1) % 1;
+      const lat = (r() * 2 - 1) * (HALF_W - 2.6);
+      const p = atCourse(u, lat);
+      out.push({ id: 'c' + i, x: p.x, y: p.y + 1.5, z: p.z, taken: false, pending: false });
+    }
+    return out;
+  }
+  let crystals = [];
+  const crystalGroup = new THREE.Group();
+  scene.add(crystalGroup);
+  function rebuildCrystals(n) {
+    while (crystalGroup.children.length) crystalGroup.remove(crystalGroup.children[0]);
+    crystals = crystalsFor(n);
+    for (const c of crystals) {
+      const m = makeCrystalMesh();
+      m.position.set(c.x, c.y, c.z);
+      c.mesh = m;
+      crystalGroup.add(m);
+    }
+  }
+
+  /* ═══════════════ own kart — locally authoritative (§1) ═══════════════ */
+  const me = {
+    x: 0, y: 0, z: 0, yaw: 0, v: 0, vx: 0, vz: 0, lat: 0, gas: false,
+    idx: -1, u: 0, prevU: 0, lap: 0, half: false, prog: 0,
+    boost: 0, drifting: false, offTrack: false, finished: false, finishMs: 0,
+  };
+  const ownVisual = makeCarVisual(net.me().id);
+  const ownRoot = new THREE.Group();          // gameplay root: position + movement yaw
+  ownRoot.add(ownVisual);                     // visual child: ONE calibration rotation
+  scene.add(ownRoot);
+  const ownLabel = document.createElement('div');
+  ownLabel.className = 'label';
+  labelBox.appendChild(ownLabel);
+
+  function gridPose(slot) {
+    const row = Math.floor(slot / 2);
+    const u = ((-0.0075 * row) % 1 + 1) % 1;
+    const lat = (slot % 2 === 0 ? -3.6 : 3.6);
+    const p = atCourse(u, lat);
+    const i = ((Math.round(u * N) % N) + N) % N;
+    return { x: p.x, y: p.y, z: p.z, yaw: Math.atan2(CT[i].x, CT[i].z) };
+  }
+  function placeOnGrid(order) {
+    let slot = order ? order.indexOf(net.me().id) : -1;
+    if (slot < 0) slot = Math.floor(hueOf(net.me().id) / 360 * 8) % 8;
+    const g = gridPose(slot);
+    Object.assign(me, {
+      x: g.x, y: g.y, z: g.z, yaw: g.yaw, v: 0, vx: 0, vz: 0,
+      lap: 0, half: false, boost: 0, finished: false, finishMs: 0, idx: -1,
+    });
+    const loc = locate(me.x, me.z, -1);
+    me.idx = loc.i; me.u = loc.u; me.prevU = loc.u; me.prog = loc.u;
+  }
+
+  /* ═══════════════ race lifecycle ═══════════════
+     A race is a ROOM verb (hard-parts §2.5): the host publishes ONE reliable,
+     round-stamped world event carrying the absolute shared-clock start time
+     and the grid order, and mirrors it to shared KV (§0 fact 2 — the op log is
+     a ~96-op window that an 11Hz pose stream evicts in seconds, so a joiner
+     past it rebuilds the race from KV). Every client — the host included —
+     applies it from the ordered stream; nothing resets locally on click. */
+  const FLAG_MS = 25000;      // the flag falls 25s after the winner crosses
+  let race = null;            // { n, startAt, order }
+  let started = false;        // LATCHED (§0 fact 8): never re-checked once true
+  let raceMs = 0;             // monotonic high-water mark
+  let localFin = [];          // fallback finish order, from 'fin' ops
+  let showResults = false;
+  let dnf = false;
+
+  // The finish order every screen reads from: the rules ledger when the sim
+  // has one, the locally accumulated 'fin' ops otherwise.
+  function finishList() {
+    const g = net.game();
+    return (g && Array.isArray(g.fin) && g.fin.length) ? g.fin : localFin;
+  }
+
+  function applyRace(r) {
+    if (!r || !(r.n > (race ? race.n : 0))) return;
+    race = { n: r.n | 0, startAt: Number(r.startAt) || 0, order: Array.isArray(r.order) ? r.order : [] };
+    started = false; raceMs = 0; localFin = []; showResults = false; dnf = false;
+    placeOnGrid(race.order);
+    rebuildCrystals(race.n);
+    resultBox.hidden = true;
+    showBanner('RACE ' + race.n + ' — get ready');
+  }
+  function startRace() {
+    if (!net.isHost() || !clockReady()) return;
+    const order = Object.keys(net.players());
+    const n = (race ? race.n : 0) + 1;
+    const payload = { n, startAt: +(sharedNow() + COUNTDOWN).toFixed(2), order };
+    net.sendReliable(Object.assign({ k: 'race' }, payload));   // the LIVE event
+    net.setShared('race', payload);                            // the DURABLE copy
+  }
+  startBtn.addEventListener('click', () => { if (net.isHost()) { net.start(); startRace(); } });
+  roundBtn.addEventListener('click', () => { if (net.isHost()) startRace(); });
+  // startRace needs a shared-clock anchor to mint an absolute start time, and
+  // net.isHost() resolves asynchronously on a real page (gotcha 15c). Either
+  // can lose the race against the click, which would leave the room in
+  // 'playing' with no race published and every kart parked. A live poll
+  // publishes as soon as both are true.
+  setInterval(() => {
+    if (net.phase() === 'playing' && !race && net.isHost() && clockReady()) startRace();
+  }, 500);
+
+  /* ═══════════════ SEAM: one ordered-op handler (§0 facts 1+2) ═══════════════
+     Streams and world events are opposites on BOTH axes. A pose is "now":
+     skip your own echo, skip replayed history, skip a catch-up backlog. A race
+     or finish event is state: the sender applies its own from the bus (a
+     self-skip would leave the clicker racing alone) and replayed events are
+     CONSUMED — that is how a latecomer catches up. Only one-shot effects
+     (banners, sounds) are gated on liveness. */
+  const ghosts = {};   // uid -> { root, visual, label, target, lastSeen, ... }
+  net.on('op', (op, meta) => {
+    if (!op) return;
+    if (op.k === 'pose') {
+      if (meta.self || meta.uid === net.me().id) return;
+      if (meta.replayed || meta.staleMs > 3000) return;
+      let g = ghosts[meta.uid];
+      if (!g) {
+        const visual = makeCarVisual(meta.uid);
+        const root = new THREE.Group();
+        root.add(visual);
+        scene.add(root);
+        const label = document.createElement('div');
+        label.className = 'label';
+        labelBox.appendChild(label);
+        g = ghosts[meta.uid] = { root, visual, label, x: op.x, z: op.z, y: op.y || 0, yaw: op.a || 0 };
+      }
+      g.target = op;
+      g.lastSeen = performance.now();
+      return;
+    }
+    if (op.k === 'race') { applyRace(op); return; }
+    if (op.k === 'fin') {
+      if (!race || (op.n | 0) !== race.n) return;
+      if (!localFin.some((f) => f.u === meta.uid)) {
+        localFin.push({ u: meta.uid, ms: Number(op.ms) || 0 });
+        localFin.sort((a, b) => a.ms - b.ms);
+        nameOf(meta.uid);                                   // cache the name while presence lasts
+        if (!meta.replayed) showBanner(nameOf(meta.uid) + ' finished ' + ordinal(localFin.findIndex((f) => f.u === meta.uid) + 1));
+      }
+      return;
+    }
+    if (op.k === 'pick') {
+      const c = crystals.find((q) => q.id === op.id);
+      if (c) { c.taken = true; c.takenAt = performance.now(); }
+      return;
+    }
+  });
+
+  // §0 fact 2: KV is the durable mirror a joiner past the log window rebuilds
+  // from; the n > race.n guard makes op / KV / phase paths converge.
+  const kvRace = () => { const r = net.shared().race; if (r) applyRace(r); };
+  net.on('update', (st) => { noteClock(st); kvRace(); });
+  net.on('phase', (p) => { if (p === 'playing' && !race) { /* host publishes; guests wait for the op */ } });
+  kvRace();
+
+  /* ═══════════════ input ═══════════════ */
+  const keys = {};
+  addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    keys[k] = true;
+    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
+  });
+  addEventListener('keyup', (e) => { delete keys[e.key.toLowerCase()]; });
+  // gotcha 13c: the pane you alt-tab away from never gets its keyup, so a held
+  // key sticks and that kart drives itself — which reads as "both players
+  // respond to my input". Real players alt-tab too.
+  addEventListener('blur', () => { for (const k in keys) delete keys[k]; });
+  const held = (...ks) => ks.some((k) => keys[k]);
+
+  // touch steering for phones (the filmstrip's mobile viewport is a real one)
+  let touchSteer = 0, touchGas = false;
+  const touchState = (e) => {
+    touchSteer = 0; touchGas = false;
+    for (const t of e.touches) {
+      touchGas = true;
+      if (t.clientY > innerHeight * 0.45) touchSteer += t.clientX < innerWidth / 2 ? -1 : 1;
+    }
+    touchSteer = Math.max(-1, Math.min(1, touchSteer));
+  };
+  for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    addEventListener(ev, (e) => { touchState(e); if (e.cancelable) e.preventDefault(); }, { passive: false });
+  }
+
+  /* ═══════════════ own physics (TASTE, locally authoritative) ═══════════════ */
+  let bumpShake = 0;
+  function stepMe(dt) {
+    const racing = started && !me.finished && net.phase() === 'playing';
+    const gas = racing && (held('w', 'arrowup') || touchGas);
+    const brake = racing && held('s', 'arrowdown');
+    const steer = racing ? ((held('d', 'arrowright') ? 1 : 0) - (held('a', 'arrowleft') ? 1 : 0)) + touchSteer : 0;
+    me.drifting = racing && held('shift') && Math.abs(me.v) > 16;
+
+    if (me.boost > 0) me.boost = Math.max(0, me.boost - dt);
+    const vmax = me.boost > 0 ? BOOST_SPEED : MAX_SPEED;
+
+    if (gas) me.v += (me.boost > 0 ? ACCEL * 1.7 : ACCEL) * dt;
+    if (brake) me.v -= BRAKE * dt;
+    if (!gas && !brake) me.v -= me.v * DRAG * dt;
+    if (!racing) me.v -= me.v * 3 * dt;
+    me.v = Math.max(-REVERSE_SPEED, Math.min(vmax, me.v));
+
+    // steering authority scales with speed, so a stationary kart cannot pirouette
+    const auth = Math.min(1, Math.abs(me.v) / 13);
+    me.yaw -= steer * TURN * auth * dt * (me.drifting ? 1.5 : 1) * (me.v < 0 ? -1 : 1);
+
+    // engine speed drives the heading; the velocity vector chases it. Low grip
+    // = the back steps out, which is the whole point of the drift key.
+    const grip = me.drifting ? DRIFT_GRIP : GRIP;
+    const k = 1 - Math.exp(-grip * dt);
+    me.vx += (Math.sin(me.yaw) * me.v - me.vx) * k;
+    me.vz += (Math.cos(me.yaw) * me.v - me.vz) * k;
+    me.x += me.vx * dt;
+    me.z += me.vz * dt;
+
+    /* ——— SEAM: ghost soft-contact (hard-parts §1) ———
+       Clamp YOURSELF out of the overlap, wall-style. A velocity-only nudge is
+       imperceptible at driving speed (measured on a kart racer: ~3% of vehicle
+       speed over an ~0.08s window reads as driving straight through the other
+       player); position resolution is the form that feels solid. Each client
+       moves only its own body, so this is symmetric and needs no arbitration. */
+    for (const uid in ghosts) {
+      const g = ghosts[uid];
+      if (!g.target || !g.root.visible) continue;
+      const dx = me.x - g.root.position.x, dz = me.z - g.root.position.z;
+      const d = Math.hypot(dx, dz), R = CAR_R * 2;
+      if (d > 1e-4 && d < R) {
+        me.x = g.root.position.x + (dx / d) * R;
+        me.z = g.root.position.z + (dz / d) * R;
+        const vn = (me.vx * dx + me.vz * dz) / d;
+        if (vn < 0) {
+          me.vx -= (dx / d) * vn; me.vz -= (dz / d) * vn;
+          me.v *= 0.86;
+          bumpShake = Math.min(1, bumpShake + 0.5);
+        }
+      } else if (d < 16 && me.v > 24) {
+        // slipstream: trailing a ghost closely, in its heading, buys speed back
+        const ga = g.target.a || 0;
+        const align = Math.cos(me.yaw - ga);
+        const ahead = (g.root.position.x - me.x) * Math.sin(me.yaw) + (g.root.position.z - me.z) * Math.cos(me.yaw);
+        if (align > 0.8 && ahead > 2) me.v = Math.min(MAX_SPEED * 1.08, me.v + 7 * dt);
+      }
+    }
+
+    // static props with visual mass act solid (hard-parts §2.5)
+    for (const b of BARRIERS) {
+      const dx = me.x - b.x, dz = me.z - b.z, rr = b.r + CAR_R;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= rr * rr || d2 < 1e-6) continue;
+      const d = Math.sqrt(d2), nx = dx / d, nz = dz / d;
+      me.x = b.x + nx * rr; me.z = b.z + nz * rr;
+      const impact = Math.max(0, -(Math.sin(me.yaw) * nx + Math.cos(me.yaw) * nz));  // 1 = head-on
+      const now = performance.now();
+      // one charge per collision, not per contact frame (same compounding trap
+      // as the wall above); sliding around the block costs the push-out only
+      if (!b.hit || now - b.hit > 400) me.v *= 1 - 0.72 * impact;
+      const vn = me.vx * nx + me.vz * nz;
+      if (vn < 0) { me.vx -= nx * vn; me.vz -= nz * vn; }
+      b.hit = now;
+      bumpShake = Math.min(1, bumpShake + 0.55 * impact + 0.15);
+    }
+
+    // course frame: lateral offset, walls, height, lap progress
+    const loc = locate(me.x, me.z, me.idx);
+    me.idx = loc.i;
+    me.lat = loc.lat; me.gas = !!gas;
+    me.y += (loc.y - me.y) * (1 - Math.exp(-9 * dt));
+    me.offTrack = Math.abs(loc.lat) > HALF_W - CAR_R;
+    if (me.offTrack) {
+      const lim = (HALF_W - CAR_R) * Math.sign(loc.lat);
+      const p = atCourse(loc.u, lim);
+      me.x = p.x; me.z = p.z;
+      const nx = CN[loc.i].x * Math.sign(loc.lat), nz = CN[loc.i].z * Math.sign(loc.lat);
+      const vn = me.vx * nx + me.vz * nz;             // component driving INTO the wall
+      if (vn > 0) {
+        me.vx -= nx * vn; me.vz -= nz * vn;
+        // Two different events, and conflating them is what pinned the kart at
+        // a crawl for the rest of the race (caught on the filmstrip, not by any
+        // assertion): a real IMPACT arrives as one frame with a large inward
+        // component and is charged once — the clamp zeroes vn, so later frames
+        // only see the sliver that grip re-introduces and stay under the
+        // threshold. A steady grind is charged per SECOND, never per frame,
+        // because a per-frame multiplier compounds sixty times over.
+        const headOn = vn / Math.max(6, Math.abs(me.v));
+        if (headOn > 0.3) {
+          me.v *= 1 - 0.55 * headOn;
+          bumpShake = Math.min(1, bumpShake + headOn * 0.6);
+        }
+      }
+      me.v -= me.v * WALL_SCRUB * dt;                 // recoverable grind
+
+      // Anti-wedge safety net. The barrier push is radial and the wall push is
+      // lateral; when they oppose each other neither can ever win and the kart
+      // is stuck for the rest of the race. Sliding ALONG the track is the one
+      // direction both constraints allow. BARRIER_MAX_LAT above should prevent
+      // the pocket from existing — this catches the same geometry arriving from
+      // a ghost shove, where the placement rule has no say.
+      for (const b of BARRIERS) {
+        const bx = me.x - b.x, bz = me.z - b.z, rr = b.r + CAR_R;
+        if (bx * bx + bz * bz >= rr * rr) continue;
+        const tx = CT[loc.i].x, tz = CT[loc.i].z;
+        const along = bx * tx + bz * tz;
+        const side = bx * CN[loc.i].x + bz * CN[loc.i].z;
+        const need = Math.sqrt(Math.max(0, rr * rr - side * side));
+        const delta = (along >= 0 ? need : -need) - along;
+        me.x += tx * delta; me.z += tz * delta;
+      }
+    }
+
+    // lap counting: a wrap only counts after the far side of the circuit was
+    // actually visited, so nudging back and forth over the line does nothing
+    const u = loc.u, du = u - me.prevU;
+    if (u > 0.4 && u < 0.75) me.half = true;
+    if (du < -0.5) {
+      if (me.half) { me.lap++; me.half = false; onLap(); }
+    } else if (du > 0.5) {
+      me.lap = Math.max(0, me.lap - 1);
+    }
+    me.prevU = u; me.u = u;
+    me.prog = me.lap + u;
+
+    ownRoot.position.set(me.x, me.y, me.z);
+    ownRoot.rotation.y = me.yaw;
+    // body roll + squat, purely cosmetic, on the VISUAL child only
+    const lateralV = -Math.cos(me.yaw) * me.vx + Math.sin(me.yaw) * me.vz;
+    ownVisual.rotation.z += (THREE.MathUtils.clamp(lateralV * 0.012, -0.22, 0.22) - ownVisual.rotation.z) * Math.min(1, dt * 8);
+    if (ownVisual.userData.wheels) {
+      for (const w of ownVisual.userData.wheels) w.rotation.x -= me.v * dt * 2.2;
+    }
+    bumpShake = Math.max(0, bumpShake - dt * 2.2);
+  }
+
+  function onLap() {
+    if (me.lap > LAPS) return;
+    if (me.lap >= LAPS && !me.finished) {
+      me.finished = true;                       // LATCHED
+      me.finishMs = Math.round(raceMs);
+      showBanner('FINISHED — ' + fmt(me.finishMs));
+      // §1 settlement: the finish must not be judged from what each screen
+      // currently sees (every other body is a throttled ghost ~0.5-1s behind).
+      // One reliable, round-stamped op goes into the ordered log; the rules
+      // script ranks on shared-clock race time, so every screen agrees.
+      net.sendReliable({ k: 'fin', n: race ? race.n : 0, ms: me.finishMs });
+      showResults = true;
+    } else {
+      showBanner('LAP ' + Math.min(me.lap + 1, LAPS) + '/' + LAPS);
+    }
+  }
+
+  /* ——— crystal pickup: optimistic pending → authoritative reveal (§0.9) ———
+     The grab plays instantly; the boost is only awarded when the op comes back
+     through the ordered log and the rules script says this player won it. The
+     ~400ms round trip hides inside the charge-up, so nothing has to be
+     revoked mid-corner. */
+  function tryPickups() {
+    if (!started || me.finished || net.phase() !== 'playing') return;
+    for (const c of crystals) {
+      if (c.taken || c.pending) continue;
+      const dx = me.x - c.x, dz = me.z - c.z;
+      if (dx * dx + dz * dz > 9) continue;
+      c.pending = true;
+      const queued = net.claim({ k: 'pick', n: race ? race.n : 0, id: c.id }, (echo) => {
+        c.pending = false;
+        if (!echo) { c.taken = false; return; }            // link died — the crystal comes back
+        const g = net.game();
+        const w = g && g.picks && g.picks[c.id];
+        c.taken = true; c.takenAt = performance.now();
+        if (!w || w.u === net.me().id) {
+          me.boost = BOOST_TIME;                            // won it (or nobody claims otherwise)
+          showBanner('BOOST!');
+        }
+      });
+      if (!queued) { c.pending = false; } else { c.taken = true; c.takenAt = performance.now(); }
+    }
+  }
+
+  /* ═══════════════ SEAM: pose stream (§0 facts 1+3) ═══════════════
+     LATEST pose on a timer — never per frame (send() drops silently over
+     budget, and a saturated stream starves itself) and never in the render
+     loop (a hidden page freezes rAF to 0Hz but only throttles timers, so a
+     covered window keeps heart-beating instead of vanishing from every other
+     screen). Keep streaming after finishing too: silence reads as departed. */
+  const r2 = (v) => Math.round(v * 100) / 100;
+  setInterval(() => {
+    net.send({
+      k: 'pose', x: r2(me.x), y: r2(me.y), z: r2(me.z), a: r2(me.yaw),
+      p: r2(me.prog), s: Math.round(me.v), f: me.finished ? 1 : 0,
+    });
+  }, 90);
+
+  /* ═══════════════ SEAM: ghost lifecycle (§0 fact 4) ═══════════════ */
+  const GHOST_IDLE_MS = 10000, GHOST_DISPOSE_MS = 150000;
+  function stepGhosts(dt) {
+    const now = performance.now();
+    for (const uid in ghosts) {
+      const g = ghosts[uid], t = g.target;
+      if (t) {
+        const dx = t.x - g.root.position.x, dz = t.z - g.root.position.z;
+        // snap when far: an unfrozen page drains its buffered updates in a
+        // burst, and without this the ghost visibly replays the trajectory it
+        // missed instead of standing at the live position.
+        if (dx * dx + dz * dz > 400) {
+          g.root.position.set(t.x, t.y || 0, t.z);
+          g.root.rotation.y = t.a || 0;
+        } else {
+          const k = 1 - Math.exp(-9 * dt);
+          g.root.position.x += dx * k;
+          g.root.position.z += dz * k;
+          g.root.position.y += ((t.y || 0) - g.root.position.y) * k;
+          let da = (t.a || 0) - g.root.rotation.y;
+          while (da > Math.PI) da -= Math.PI * 2;
+          while (da < -Math.PI) da += Math.PI * 2;
+          g.root.rotation.y += da * k;
+        }
+        if (g.visual.userData.wheels) {
+          for (const w of g.visual.userData.wheels) w.rotation.x -= (t.s || 0) * dt * 2.2;
+        }
+      }
+      // existence is the server's connection truth, not stream cadence:
+      // players() drops real leavers (relay grace ~5s) while an idle or
+      // backgrounded player stays listed — they STAND at the last pose rather
+      // than vanishing. Background pages get timers throttled to as little as
+      // 1/min, so the dispose backstop sits well above that heartbeat.
+      const silent = now - (g.lastSeen || 0);
+      const here = !!net.players()[uid];
+      g.root.visible = here;
+      g.idle = here && silent > GHOST_IDLE_MS;
+      if ((!here && silent > 5000) || silent > GHOST_DISPOSE_MS) {
+        scene.remove(g.root);
+        g.label.remove();
+        delete ghosts[uid];
+      }
+    }
+  }
+
+  /* ═══════════════ camera (TASTE — but see gotcha 16) ═══════════════
+     The camera yaw is smoothed in ANGLE space and the rig is then placed
+     rigidly from it. Lerping the camera POSITION in world space is what loses
+     the car in a sustained turn, and no single frame shows it. */
+  let camYaw = 0, camY = 0, camInit = false;
+  const camPos = new THREE.Vector3(), lookAt = new THREE.Vector3();
+  function stepCamera(dt) {
+    if (!camInit) { camYaw = me.yaw; camY = me.y; camInit = true; }
+    let da = me.yaw - camYaw;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    camYaw += da * (1 - Math.exp(-5.5 * dt));
+    camY += (me.y - camY) * (1 - Math.exp(-6 * dt));
+    const back = 12.5 + Math.min(6, Math.abs(me.v) * 0.09);
+    const shake = bumpShake * 0.5;
+    camPos.set(
+      me.x - Math.sin(camYaw) * back + (Math.random() - 0.5) * shake,
+      camY + 5.4 + (Math.random() - 0.5) * shake,
+      me.z - Math.cos(camYaw) * back
+    );
+    camera.position.copy(camPos);
+    lookAt.set(me.x + Math.sin(me.yaw) * 8, me.y + 1.8, me.z + Math.cos(me.yaw) * 8);
+    camera.lookAt(lookAt);
+  }
+
+  /* ═══════════════ HUD / lobby / results ═══════════════ */
+  const ordinal = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 - n % 10 !== 10) * (n % 10)] || 'th');
+  const fmt = (ms) => {
+    const cs = Math.round(Math.max(0, ms) / 10);          // round to centiseconds FIRST,
+    const m = Math.floor(cs / 6000);                      // or 59.999s formats as "0:60.00"
+    const s = (cs - m * 6000) / 100;
+    return m + ':' + (s < 10 ? '0' : '') + s.toFixed(2);
+  };
+
+  let bannerT = null;
+  function showBanner(text) {
+    banner.textContent = text;
+    banner.style.opacity = 1;
+    clearTimeout(bannerT);
+    bannerT = setTimeout(() => { banner.style.opacity = 0; }, 1700);
+  }
+
+  function place() {
+    let ahead = 0;
+    for (const uid in ghosts) {
+      const t = ghosts[uid].target;
+      if (t && net.players()[uid] && (t.p || 0) > me.prog) ahead++;
+    }
+    return ahead + 1;
+  }
+
+  function renderLobby() {
+    const inLobby = net.phase() === 'lobby';
+    lobby.style.display = inLobby ? 'grid' : 'none';
+    if (!inLobby) return;
+    const ids = Object.keys(net.players());
+    roster.innerHTML = ids.map((id) =>
+      `<div class="${id === net.me().id ? 'you' : ''}">` +
+      `<span style="color:hsl(${hueOf(id)} 75% 62%)">▮</span> ${nameOf(id)}${id === net.me().id ? ' — you' : ''}</div>`
+    ).join('') || '<div class="dim">…</div>';
+    // §0 fact 5 / gotcha 15b: a fresh room is a room of one, and without this
+    // line that reads as "multiplayer is broken" rather than "nobody joined".
+    hint.textContent = ids.length < 2
+      ? 'solo so far — friends join through the room\'s Invite link'
+      : ids.length + ' racers connected';
+    // gotcha 15c: real-page identity/role resolve asynchronously (seconds), so
+    // this renders from a LIVE poll. A one-shot isHost() check at load freezes
+    // the pre-resolution answer and the button silently swallows clicks.
+    const host = net.isHost();
+    startBtn.disabled = !host;
+    startBtn.textContent = host ? 'START RACE' : 'waiting for host…';
+  }
+
+  function renderResults() {
+    const fin = finishList();
+    resultBox.hidden = !showResults;
+    if (resultBox.hidden) return;
+    const mine = fin.findIndex((f) => f.u === net.me().id);
+    resultTitle.textContent = mine === 0 ? '🏆 YOU WIN'
+      : mine > 0 ? 'FINISHED ' + ordinal(mine + 1)
+      : dnf ? 'FLAGGED OFF' : 'RESULTS';
+    const rows = fin.slice(0, 8).map((f, i) =>
+      `<div class="${f.u === net.me().id ? 'me' : ''}"><span class="pos">${i + 1}.</span>` +
+      `${nameOf(f.u)}<span class="t">${fmt(f.ms)}</span></div>`
+    );
+    // everyone still on the roster who never crossed the line
+    const done = new Set(fin.map((f) => f.u));
+    for (const uid of Object.keys(net.players())) {
+      if (done.has(uid)) continue;
+      rows.push(`<div class="${uid === net.me().id ? 'me' : ''}"><span class="pos">–</span>` +
+        `${nameOf(uid)}<span class="t">DNF</span></div>`);
+    }
+    board.innerHTML = rows.join('') || '<div class="dim">no finishers yet</div>';
+    const host = net.isHost();
+    roundBtn.disabled = !host;
+    roundBtn.textContent = host ? 'NEXT RACE' : 'waiting for host…';
+  }
+
+  function renderHud() {
+    const q = net.quality();
+    const tier = q.tier === 'good' ? '🟢' : q.tier === 'degraded' ? '🟡 weak link' : '🔴 reconnecting';
+    const lapTxt = race ? Math.min(me.lap + 1, LAPS) + '/' + LAPS : '–';
+    hud.innerHTML =
+      `<div class="row"><span class="dim">LAP</span><b>${lapTxt}</b></div>` +
+      `<div class="row"><span class="dim">POS</span><b>${race && started ? place() : '–'}</b></div>` +
+      `<div class="row"><span class="dim">TIME</span><span>${started ? fmt(raceMs) : '0:00.00'}</span></div>` +
+      `<div class="row"><span class="dim">${tier}</span><span class="dim">${q.rttMs}ms</span></div>` +
+      (assetNote ? `<div class="row"><span class="dim">ART</span><span class="dim">${assetNote}</span></div>` : '');
+    kmhEl.textContent = Math.round(Math.abs(me.v) * 3.2);
+    boostFill.style.width = Math.round((me.boost / BOOST_TIME) * 100) + '%';
+  }
+
+  const v3 = new THREE.Vector3();
+  function placeLabel(el, x, y, z, text) {
+    v3.set(x, y + 2.6, z).project(camera);
+    const on = v3.z < 1;
+    el.style.display = on ? 'block' : 'none';
+    if (!on) return;
+    el.style.left = ((v3.x + 1) / 2 * innerWidth) + 'px';
+    el.style.top = ((1 - v3.y) / 2 * innerHeight) + 'px';
+    el.textContent = text;
+  }
+  function renderLabels() {
+    placeLabel(ownLabel, me.x, me.y, me.z, nameOf(net.me().id) + ' (you)');
+    for (const uid in ghosts) {
+      const g = ghosts[uid];
+      if (!g.root.visible) { g.label.style.display = 'none'; continue; }
+      const p = g.root.position;
+      placeLabel(g.label, p.x, p.y, p.z,
+        nameOf(uid) + (g.idle ? ' 💤' : '') + (g.target && g.target.f ? ' ✓' : ''));
+    }
+  }
+
+  /* ——— SEAM: degrade contract (hard-parts §0) — bind UI to the TIER, not raw
+     samples; a silent stall is otherwise indistinguishable from a broken game. */
+  net.on('connection', (e) => {
+    if (e.kind !== 'quality') return;
+    showBanner(e.tier === 'critical' ? '⚠ connection lost — reconnecting…'
+      : e.tier === 'degraded' ? '⚠ weak network' : '✓ connection recovered');
+  });
+  net.on('players', renderLobby);
+
+  /* ═══════════════ world tick ═══════════════ */
+  function stepRace(dt) {
+    if (!race) return;
+    // §0 fact 8: a T minted before a sim rewarm is stranded in a dead clock
+    // domain. A far-future one is re-derived locally, or every joiner past the
+    // rewarm would sit on a countdown that never reaches zero.
+    if (clockReady() && !started && race.startAt - sharedNow() > COUNTDOWN + 12) {
+      race.startAt = sharedNow() + 2;
+    }
+    if (!started && clockReady() && sharedNow() >= race.startAt) {
+      started = true;                                   // LATCHED, never re-checked
+      showBanner('GO!');
+    }
+    if (started && !me.finished) raceMs = Math.max(raceMs, (sharedNow() - race.startAt) * 1000);
+
+    // Chequered flag: 25s after the WINNER's time, the race is over for
+    // everyone. Derived from the finish list every client already has, so it
+    // costs no traffic and lands on every screen — and it is what gets a
+    // trailing player (and a host who is not first home) to the results screen
+    // at all. Latched, never re-checked (§0 fact 8).
+    const fin = finishList();
+    if (started && fin.length && !me.finished && raceMs >= fin[0].ms + FLAG_MS) {
+      me.finished = true; dnf = true; showResults = true;
+      showBanner('CHEQUERED FLAG');
+    }
+    if (started && me.finished) showResults = true;
+
+    // countdown, derived per frame from the shared clock (so it heals rather
+    // than sticking if the anchor re-bases)
+    if (!started && clockReady()) {
+      const left = race.startAt - sharedNow();
+      countdownEl.style.opacity = left > 0 && left < COUNTDOWN + 1 ? 1 : 0;
+      countdownEl.textContent = left > 0.05 ? String(Math.ceil(left)) : 'GO';
+    } else {
+      countdownEl.style.opacity = (started && sharedNow() - race.startAt < 0.7) ? 1 : 0;
+      if (started) countdownEl.textContent = 'GO';
+    }
+
+    // authoritative crystal state: the rules ledger owns what is taken
+    const g = net.game();
+    const picks = (g && g.picks) || null;
+    for (const c of crystals) {
+      const owned = picks ? !!picks[c.id] : false;
+      if (picks && !c.pending) c.taken = owned;
+      const want = !c.taken;
+      if (c.mesh.visible !== want) c.mesh.visible = want;
+    }
+  }
+
+  function animateProps(dt, now) {
+    const t = now / 1000;
+    for (const c of crystals) {
+      if (!c.mesh.visible) continue;
+      c.mesh.rotation.y += dt * 1.6;
+      c.mesh.position.y = c.y + Math.sin(t * 2.2 + c.x * 0.1) * 0.28;
+    }
+    for (const b of BARRIERS) {
+      if (!b.hit) continue;
+      const age = (now - b.hit) / 1000;
+      if (age > 0.5) { b.mesh.rotation.z = 0; b.hit = 0; continue; }
+      b.mesh.rotation.z = Math.sin(age * 42) * 0.09 * (1 - age / 0.5);
+    }
+  }
+
+  /* ——— SEAM: playtest hooks (§0.9). Read hooks ship harmlessly; the
+     state-WRITING hook exists only under the mock harnesses. ——— */
+  window.__PLAYTEST__ = {
+    focusScreenPos() {
+      const v = new THREE.Vector3(me.x, me.y + 1, me.z).project(camera);
+      return { x: (v.x + 1) / 2, y: (1 - v.y) / 2 };
+    },
+    state: () => ({
+      phase: net.phase(), round: race ? race.n : 0, started,
+      lap: me.lap, finished: me.finished, ms: Math.round(raceMs),
+      ghosts: Object.keys(ghosts).length,
+      fin: ((net.game() && net.game().fin) || localFin).map((f) => f.u),
+      // drive diagnostics: a still frame cannot tell "pinned on a wall" from
+      // "this is how fast it goes" (game/tools/drive-probe.ts reads these)
+      v: +me.v.toFixed(2), u: +me.u.toFixed(4), lat: +me.lat.toFixed(2),
+      wall: me.offTrack, gas: me.gas,
+    }),
+  };
+  if (window.__SHARKY_LOCAL_BUS__) {
+    // mock rooms only — never on the live page
+    window.__PLAYTEST__.toFinish = () => {
+      me.lap = LAPS - 1; me.half = true;
+      const p = atCourse(0.985, 0);
+      me.x = p.x; me.z = p.z; me.y = p.y;
+      const i = ((Math.round(0.985 * N) % N) + N) % N;
+      me.yaw = Math.atan2(CT[i].x, CT[i].z);
+      me.prevU = 0.985; me.idx = i; me.v = 20;
+    };
+  }
+
+  /* ═══════════════ frame ═══════════════ */
+  setInterval(renderLobby, 250);
+  setInterval(renderResults, 400);
+  setInterval(renderHud, 120);
+  renderLobby();
+  rebuildCrystals(1);
+  placeOnGrid(null);
+
+  let last = performance.now();
+  (function frame(now) {
+    requestAnimationFrame(frame);
+    // rAF freezes in hidden tabs; an unclamped catch-up step teleports the kart
+    const dt = Math.min(0.05, Math.max(0.0005, (now - last) / 1000));
+    last = now;
+    stepRace(dt);
+    stepMe(dt);
+    tryPickups();
+    stepGhosts(dt);
+    stepCamera(dt);
+    animateProps(dt, now);
+    renderLabels();
+    renderer.render(scene, camera);
+  })(last);
+})();
+</script>
+</body>
+</html>

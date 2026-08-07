@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "schema": "shark-asset-sourcing-plan",
+  "runId": "sharky-speedway-20260807-01",
+  "confirmation": {
+    "confirmed": true,
+    "confirmedBy": "user",
+    "confirmedAt": "2026-08-07T09:44:46.000Z",
+    "note": "User instruction: 用这个 sharky-online-skill 做一个多人联机的赛车游戏，做完后上传平台，赛车要用3d-assets的skill来生成glb资产. Asset Center personal-assets MCP tools are absent in this session, so no reusable inventory could be queried; every slot is a fresh generation."
+  },
+  "slots": [
+    {
+      "id": "neon-kart",
+      "name": "Neon Circuit Kart",
+      "role": "player",
+      "assetKind": "vehicle",
+      "tier": "key",
+      "model": { "source": "generate_new", "generator": "gemini_reference" },
+      "actions": [
+        {
+          "name": "drive",
+          "scene": "玩家驾驶时车轮滚动与车身侧倾，运行时程序动画驱动",
+          "source": "runtime_procedural",
+          "cost": 0
+        }
+      ]
+    },
+    {
+      "id": "boost-crystal",
+      "name": "Turbo Boost Crystal",
+      "role": "collectible",
+      "assetKind": "prop",
+      "tier": "secondary",
+      "model": { "source": "generate_new", "generator": "tripo" },
+      "actions": [
+        {
+          "name": "hover",
+          "scene": "赛道上等待被抢夺时悬浮自转",
+          "source": "runtime_procedural",
+          "cost": 0
+        }
+      ]
+    },
+    {
+      "id": "track-barrier",
+      "name": "Neon Track Barrier",
+      "role": "hazard",
+      "assetKind": "prop",
+      "tier": "secondary",
+      "model": { "source": "generate_new", "generator": "tripo" },
+      "actions": [
+        {
+          "name": "shake",
+          "scene": "被赛车撞击时轻微晃动，运行时程序动画",
+          "source": "runtime_procedural",
+          "cost": 0
+        }
+      ]
+    }
+  ]
+}
