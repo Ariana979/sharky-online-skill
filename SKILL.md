@@ -96,9 +96,15 @@ Commands below run from your game's directory; `<skill>` stands for this
 skill's base directory (printed at the top when the skill loads).
 
 **1. Write the game** — free-form HTML in one file, using the API above.
-Study `examples/cursor-arena.html` for the local-echo + ordered-apply pattern;
-`examples/round-arena-3d.html` is the 3D live-presence variant (world-event
-rounds, ghost lifecycle + out-state legibility, role-resolution-safe start).
+For any game with live presence, START by copying `examples/skeleton.html`:
+the invariant platform seam (sim guard, presence rig, round lifecycle + KV
+mirror, lobby legibility, degrade chip, playtest hooks) assembled and kept
+green against build + gates — replace everything marked TASTE freely;
+change SEAM lines with the hard-parts fact they cite open.
+`examples/cursor-arena.html` is the minimal local-echo + ordered-apply
+read; 3D/three.js games: study `examples/round-arena-3d.html` — the same
+seam assembled in a full scene (world-event rounds, ghost lifecycle +
+out-state legibility, role-resolution-safe start).
 Vendored libs: put `/*__VENDOR:three-0.161.0.global.min__*/` inside a
 `<script>` tag and the build inlines `assets/vendor/<name>.js` — the
 placeholder name carries NO `.js` suffix (`ls assets/vendor/` to see what
@@ -114,6 +120,8 @@ time sources and state onto this seam.
 bun <skill>/scripts/build.ts --game my-game.html --title "My Game" \
     --min-players 2 --max-players 8 --out dist/index.html
 ```
+`--smoke` chains the smoke render check onto the same invocation — the
+one-command inner loop (build + render check, combined exit code).
 
 **2.5 Deterministic checks** — what the machines can assert on the fresh
 build. Cadence (two tiers): the per-edit inner loop is build + smoke, plus
@@ -179,7 +187,12 @@ until an eye reads them.
 (two players side by side, no credentials needed):
 ```bash
 bun <skill>/scripts/dev-serve.ts --html dist/index.html   # room at / (and /dev — same page)
+bun <skill>/scripts/dev-serve.ts --game my-game.html      # SOURCE mode: authoring loop
 ```
+SOURCE mode injects the runtime per request (same code path as build.ts),
+so the authoring loop is edit → reload — no command between; a contract
+violation renders as a loud 500 in the pane. The vm sim gate only runs in
+build.ts — build before the §2.5 checks and publish.
 
 **3.4 Author-time live play** — most bugs get caught here rather than in
 the checks (consistently measured): exploratory play reaches the
@@ -261,10 +274,11 @@ bun <skill>/scripts/dev-serve.ts --html dist/index.html --game-id <id>
   player's `name` (the shim's `initPlayer` fills it from the platform's
   display_name), so a named roster renders straight from it.
 - Multiplayer QUALITY levers — read `references/hard-parts.md` before
-  designing any real-time genre: §0 presence rig is the settled seam
-  plumbing (self-echo/replay/throttle/ghost lifecycle/identity naming/lobby
-  legibility — don't re-derive it); ghost soft-contact buys back interaction feel with
-  zero authority cost; a `__SHARKY_RULES__` script buys server-arbitrated
+  designing any real-time genre, scoped by its top-of-file map: §0's
+  presence rig ships pre-assembled in `examples/skeleton.html` (don't
+  re-derive it — §0's facts say what each SEAM line protects); ghost
+  soft-contact (§1) buys back interaction feel with
+  zero authority cost; a `__SHARKY_RULES__` script (§2) buys server-arbitrated
   fairness (pickups, finishes, scoring) with the optimistic+reconcile
   pattern. Ghosting alone reads as "passable" — these levers push past it.
 - room-test.ts is the only automated signal that the published room actually
